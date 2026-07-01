@@ -18,7 +18,7 @@ calibrate direction before the autonomous loop.
 | #  | slug | world | core effect & technique | vibe | status |
 |----|------|-------|-------------------------|------|--------|
 | 01 | house-walkthrough | House | orbit camera, day→night cycle · path + interior + bloom | warm cinematic | ☑ |
-| 02 | cyberpunk-alley | Cyberpunk alley | endless neon-rain flight · looping tiles + heavy post | dark neon | ☐ |
+| 02 | cyberpunk-alley | Cyberpunk alley | endless neon-rain flight · looping tiles + heavy post | dark neon | ☑ |
 | 03 | solar-journey | Solar system | overview → zoom each planet → black hole · shaders + bloom | dark cosmic | ☑ |
 | 04 | deep-descent | Deep sea | surface → bioluminescent abyss · god rays + fog | abyss | ☐ |
 | 05 | cathedral | Cathedral | reverent flight, light shafts · volumetric + dust | chiaroscuro | ☐ |
@@ -111,3 +111,23 @@ User-requested concepts (2026-06-29): `21-earth-descent` (build now), `22-goal-s
     top, `#1f2718`→`#73813f`) faking AO + skylight, a subtle per-tree hue shift, 5 overlapping lumps per tree
     and a tapered, slightly-leaning trunk. Pure CPU geometry, no new shader — SwiftShader-safe. Poster regenerated.
     Supersedes the earlier "intentionally dim dusk piece" deferral — `01` is now a full day→night arc.
+- 2026-07-01/02 — `02-cyberpunk-alley` cleared the bar (endless neon-rain flight, station panels, HUD depth
+  readout, Rajdhani/JetBrains Mono pairing). Found and fixed a real bug during visual verification, worth
+  recording: the alley walls (`THREE.InstancedMesh` with a fully custom `ShaderMaterial`) never multiplied
+  vertex `position`/`normal` by `instanceMatrix` in the vertex shader — Three.js does NOT auto-apply
+  `instanceMatrix` for raw `ShaderMaterial` the way it does for built-in materials, so all 26 building
+  instances per side silently collapsed onto one block-sized shape at the shared group origin. It rendered
+  (no console error) and looked like a plausible bloom-blown "wet reflection blob" at first glance — only
+  caught by isolating systems one at a time (hide ground / hide walls / solid-red material override) and
+  noticing that moving the loop's `z` offset had zero visual effect, which a correctly-instanced mesh could
+  never do. Fixed by transforming `position`/`normal` through `instanceMatrix` before `modelMatrix` in the
+  vertex shader. Once real per-instance buildings appeared, the window-grid density/brightness needed a
+  second pass (was tuned against the collapsed single-block case, so it read as a solid glowing wall once
+  correctly tiled across 26 instances) — window-lit threshold `0.4→0.86`, fresnel/window intensities roughly
+  halved. Also fixed: three ground-reflection lanes converging near the camera's opening position blew past
+  white on the first frame (hard-clamped `refl` + widened the near-camera falloff); two station headlines
+  double-exposing during the mid-scroll crossfade (steep opacity falloff with a hard zero past a threshold,
+  replacing an unbounded linear one); rain was sub-pixel/invisible at flight distance (switched from
+  `THREE.Points` sprites to additive-blended instanced streak planes). Added missing `prefers-reduced-motion`
+  handling (PROJECT.md quality gate) — handheld camera sway now holds still under reduced motion. Removed
+  dead code (`smoother`, unused since an earlier pass). `tools/poster.mjs` gained the `02` job.

@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wet Circuit — A Flight Through the Alley</title>
+<meta name="description" content="Scroll down a rain-slicked cyberpunk alley, deeper and deeper, past neon signage that bleeds into the wet street below.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../shared/base.css">
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/",
+    "gsap": "https://cdn.jsdelivr.net/npm/gsap@3.13.0/index.js",
+    "gsap/ScrollTrigger": "https://cdn.jsdelivr.net/npm/gsap@3.13.0/ScrollTrigger.js",
+    "gsap/": "https://cdn.jsdelivr.net/npm/gsap@3.13.0/",
+    "lenis": "https://cdn.jsdelivr.net/npm/lenis@1.3.11/dist/lenis.mjs"
+  }
+}
+</script>
+
+<style>
+  /* Design direction: NOT the generic "near-black + acid-green" AI cliché —
+     hot magenta / electric cyan / warm amber signage on an indigo-black street. */
+  :root { --accent: #ff2fb0; }
+  body { background: #07040d; color: #f3e9ff; }
+
+  .display { font-family: "Rajdhani", system-ui, sans-serif; }
+  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+
+  .scrim { position: fixed; inset: 0; z-index: 5; pointer-events: none;
+    background: linear-gradient(90deg, rgba(7,4,13,.88) 0%, rgba(7,4,13,.5) 22%, rgba(7,4,13,0) 48%); }
+
+  .panels { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+  .panel {
+    position: absolute; left: clamp(24px, 6vw, 110px); top: 50%; transform: translateY(-50%);
+    max-width: 33ch; opacity: 0; transition: opacity .5s ease; will-change: opacity;
+    text-shadow: 0 1px 24px rgba(0,0,0,.7);
+  }
+  .panel .idx { font-family: "JetBrains Mono", monospace; font-size: 12px; letter-spacing: .22em; color: var(--accent); margin-bottom: 18px; }
+  .panel .label {
+    font-family: "Rajdhani", sans-serif; font-weight: 700; text-transform: uppercase;
+    font-size: clamp(52px, 8.5vw, 128px); line-height: .9; letter-spacing: -.01em; margin: 0 0 .28em;
+  }
+  .panel .data { display: grid; gap: 9px; margin: 0 0 26px; max-width: 31ch; }
+  .panel .data > div { display: flex; justify-content: space-between; gap: 16px; align-items: baseline;
+    border-top: 1px solid rgba(255,255,255,.12); padding-top: 8px; }
+  .panel .data dt { font-family: "JetBrains Mono", monospace; font-size: 11px; letter-spacing: .16em; color: rgba(243,233,255,.5); margin: 0; }
+  .panel .data dd { font-family: "JetBrains Mono", monospace; font-size: 13px; color: #fff; margin: 0; text-align: right; }
+  .panel .blurb { font-family: "Rajdhani", sans-serif; font-weight: 500; font-size: clamp(16px, 1.6vw, 19px);
+    line-height: 1.55; color: rgba(243,233,255,.76); max-width: 34ch; }
+
+  /* signature HUD: a scanline depth-readout, styled like a HUD overlay on a runner's visor */
+  .hud { position: fixed; right: clamp(20px, 4vw, 56px); bottom: clamp(24px, 5vh, 56px); z-index: 8; text-align: right;
+    text-shadow: 0 1px 18px rgba(0,0,0,.7); }
+  .hud .cap { font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: .26em; color: rgba(243,233,255,.45); margin-bottom: 6px; }
+  .hud .val { font-family: "JetBrains Mono", monospace; font-weight: 500; font-size: clamp(22px, 3vw, 38px); color: var(--accent);
+    transition: color .6s ease; font-variant-numeric: tabular-nums; }
+  .hud .rail { margin-top: 14px; width: clamp(120px, 16vw, 220px); height: 1px; background: rgba(255,255,255,.14); margin-left: auto; position: relative; }
+  .hud .rail > i { position: absolute; left: 0; top: -1px; height: 3px; background: var(--accent); transition: width .15s linear, background .6s ease; }
+
+  .loader { background: #07040d; }
+  .loader .label { font-family: "JetBrains Mono", monospace; letter-spacing: .3em; font-size: 13px; color: var(--accent); margin-bottom: 16px; }
+  .loader .bar > i { background: var(--accent); }
+  .scroll-cue { color: rgba(243,233,255,.6); }
+
+  @media (max-width: 720px) {
+    .panel { max-width: 78vw; }
+    .hud { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<a class="back mono" href="../../index.html">← Showroom</a>
+
+<div class="loader">
+  <div style="display:grid;place-items:center;gap:4px">
+    <div class="label">ENTERING THE ALLEY</div>
+    <div class="bar"><i></i></div>
+  </div>
+</div>
+
+<div class="scrim" aria-hidden="true"></div>
+<div class="panels"></div>
+
+<div class="hud">
+  <div class="cap mono">DEPTH TRAVELLED</div>
+  <div class="val mono">0 m</div>
+  <div class="rail"><i style="width:0%"></i></div>
+</div>
+
+<div class="scroll-cue mono" aria-hidden="true">Scroll to fly deeper</div>
+<div class="spacer"></div>
+
+<script type="module">
+import { THREE, gsap, ScrollTrigger, makeRenderer, smoothScroll, loop, onResize, loaderOverlay, reducedMotion } from '../../shared/lib.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+
+const loader = loaderOverlay();
+
+// ---------------------------------------------------------------- stations (the narrative beats)
+const STATIONS = [
+  { label: 'Entry', z: 0, accent: '#ff2fb0',
+    data: [['SECTOR', '9 — Low Row'], ['RAIN', 'Continuous'], ['CURFEW', '02:00']],
+    blurb: 'Neon leaks into the wet street before it ever hits the eye — every sign doubles itself in the puddles below.' },
+  { label: 'Noodle Row', z: -70, accent: '#28e5ff',
+    data: [['VENDORS', '40+ stalls'], ['STEAM', 'Rising'], ['SIGNAGE', 'Cyan dominant']],
+    blurb: 'Steam off the food stalls catches the cyan signs and scatters them into soft halos overhead.' },
+  { label: 'Data Market', z: -150, accent: '#ffb23c',
+    data: [['TRAFFIC', 'Grey market'], ['DRONES', 'Patrol sweep'], ['LIGHT', 'Amber warning']],
+    blurb: 'Amber warning strips replace the neon here — a quieter street that still watches you back.' },
+  { label: 'The Undercut', z: -260, accent: '#ff2fb0',
+    data: [['DEPTH', 'Sub-level 3'], ['SKY', 'Not visible'], ['EXIT', 'None marked']],
+    blurb: 'The alley narrows and the signs stack higher, fighting for a sliver of a sky nobody down here has seen.' },
+];
+const N = STATIONS.length;
+const totalZ = STATIONS[N - 1].z;
+
+// ---------------------------------------------------------------- renderer / scene
+const renderer = makeRenderer();
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a14);
+// lighter fog + shorter throw so the walls silhouette against it instead of vanishing into pure black
+scene.fog = new THREE.FogExp2(0x120e1e, 0.014);
+const camera = new THREE.PerspectiveCamera(78, innerWidth / innerHeight, 0.1, 300);
+camera.position.set(0, 3.2, 8);
+
+// ---------------------------------------------------------------- shared noise (rain + sign flicker)
+const NOISE = `
+float hash(vec2 p){ return fract(sin(dot(p,vec2(41.3,289.1)))*43758.5453); }
+`;
+
+const ALLEY_HALF_W = 3.6; // narrow alley so buildings read close-up and signs fill the frame
+
+// ---------------------------------------------------------------- wet ground: tiled reflective plane
+const groundUniforms = { uTime: { value: 0 }, uColorA: { value: new THREE.Color('#ff2fb0') }, uColorB: { value: new THREE.Color('#28e5ff') } };
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(ALLEY_HALF_W * 2, 400, 1, 1),
+  new THREE.ShaderMaterial({
+    uniforms: groundUniforms,
+    vertexShader: `varying vec2 vUv; varying vec3 vW;
+      void main(){ vUv=uv; vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; gl_Position=projectionMatrix*viewMatrix*w; }`,
+    fragmentShader: NOISE + `uniform float uTime; uniform vec3 uColorA; uniform vec3 uColorB; varying vec2 vUv; varying vec3 vW;
+      void main(){
+        // base wet asphalt — lifted enough to silhouette the street edge against the fog/void
+        vec3 base = vec3(0.05, 0.045, 0.075);
+        // streaked reflections: several independent vertical light streaks (not one lane-stripe —
+        // higher spatial frequency across the street width so multiple puddled reflections read at once),
+        // each warped a little differently along Z so they don't look like a fixed painted line.
+        float ripple = sin(vW.z*0.35 + uTime*0.6) * 0.5 + sin(vW.x*1.3 - uTime*0.3) * 0.5;
+        float lane = vW.x * 2.6 + ripple * 1.1 + sin(vW.z * 0.08) * 0.8;
+        float streak = pow(max(0.0, sin(lane)), 8.0);
+        vec3 refl = mix(uColorA, uColorB, hash(floor(vec2(vW.x * 0.8, vW.z * 0.12)))) * streak * 0.75;
+        // fade the reflection both close to camera (avoid a flat glare right under the lens blowing
+        // out additively with the rain layer) and far into the fog — peaks in a mid-distance band
+        float near = smoothstep(0.0, 40.0, -vW.z);
+        float far = smoothstep(1.0, 0.0, -vW.z / 340.0);
+        // hard-clamp so overlapping lanes can never sum past a controlled ceiling and clip to flat white
+        vec3 col = base + min(refl * near * far, vec3(0.62));
+        // near-camera rim brightening so the ground doesn't read as a hard-edged wedge in the dark
+        col += vec3(0.03, 0.025, 0.05) * (1.0 - smoothstep(0.0, 50.0, -vW.z));
+        // faint centre-line hint to read this as a paved street, not an abstract plane
+        float centre = smoothstep(0.14, 0.0, abs(vUv.x - 0.5)) * step(0.5, fract(vW.z * 0.09));
+        col += vec3(0.12, 0.1, 0.06) * centre * 0.4;
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.set(0, 0, -180);
+scene.add(ground);
+
+// ---------------------------------------------------------------- alley walls (instanced blocks either side, faces catch neon via fresnel)
+function hash2(i, s) { const x = Math.sin(i * 12.9898 + s * 78.233) * 43758.5453; return x - Math.floor(x); }
+function buildWallSide(sign) {
+  const group = new THREE.Group();
+  const blockGeo = new THREE.BoxGeometry(5, 1, 5.5);
+  const blockMat = new THREE.ShaderMaterial({
+    // NOTE: THREE.ShaderMaterial does NOT auto-apply instanceMatrix — without multiplying
+    // it in manually, every instance renders at the geometry's raw (untransformed) origin,
+    // stacking all 26 blocks on top of each other into one block-sized shape near world origin.
+    vertexShader: `varying vec3 vN; varying vec3 vW; varying vec2 vUv;
+      void main(){
+        vUv = uv;
+        vec4 local = instanceMatrix * vec4(position, 1.0);
+        vN = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
+        vec4 w = modelMatrix * local;
+        vW = w.xyz;
+        gl_Position = projectionMatrix * viewMatrix * w;
+      }`,
+    fragmentShader: `varying vec3 vN; varying vec3 vW; varying vec2 vUv;
+      const vec3 MAGENTA = vec3(1.0, 0.18, 0.69);
+      const vec3 CYAN = vec3(0.16, 0.9, 1.0);
+      const vec3 AMBER = vec3(1.0, 0.7, 0.24);
+      float hash(vec2 p){ return fract(sin(dot(p,vec2(41.3,289.1)))*43758.5453); }
+      void main(){
+        // concrete facade, lifted well above black so it silhouettes against the fog/void on its own —
+        // does NOT depend on fresnel or bloom to read as a solid building.
+        vec3 base = vec3(0.24, 0.22, 0.30);
+        float cyc = mod(floor(-vW.z / 10.0), 3.0);
+        vec3 bounce = cyc < 0.5 ? MAGENTA : (cyc < 1.5 ? CYAN : AMBER);
+        vec3 V = normalize(cameraPosition - vW);
+        float fres = pow(1.0 - clamp(dot(normalize(vN), V), 0.0, 1.0), 1.8);
+        // grid of lit windows: sparse bright cells (most windows are dark at this hour) —
+        // a high threshold + toned-down colour so the facade reads as scattered lights, not a
+        // solid glowing wall once tiled across 26 real building instances.
+        vec2 cell = floor(vec2(vUv.x * 8.0, vW.y * 1.6));
+        vec2 cellUv = fract(vec2(vUv.x * 8.0, vW.y * 1.6));
+        float lit = step(0.86, hash(cell + floor(vW.z * 0.3)));
+        float pane = step(0.16, cellUv.x) * step(cellUv.x, 0.84) * step(0.2, cellUv.y) * step(cellUv.y, 0.8);
+        vec3 winColor = mix(vec3(1.0,0.82,0.55), bounce, 0.15);
+        vec3 col = base + fres * bounce * 0.25 + lit * pane * winColor * 0.55;
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  });
+  const count = 26;
+  const inst = new THREE.InstancedMesh(blockGeo, blockMat, count);
+  const m = new THREE.Matrix4();
+  for (let i = 0; i < count; i++) {
+    // start well clear of the camera's opening position (z=8) so no block face is ever
+    // seen point-blank/dead-on in the first frame, before any scroll has happened
+    const z = -i * 13 - 34;
+    const h = 9 + hash2(i, sign) * 14;
+    m.makeScale(1, h, 1);
+    m.setPosition(sign * (ALLEY_HALF_W + 2.5), h / 2, z);
+    inst.setMatrixAt(i, m);
+  }
+  inst.instanceMatrix.needsUpdate = true;
+  group.add(inst);
+  return { group, mat: blockMat };
+}
+const wallL = buildWallSide(1);
+const wallR = buildWallSide(-1);
+scene.add(wallL.group, wallR.group);
+
+// ---------------------------------------------------------------- neon signs (planes flush on the wall face, facing down the alley)
+const SIGN_COLORS = ['#ff2fb0', '#28e5ff', '#ffb23c'];
+const signGeo = new THREE.PlaneGeometry(1, 1);
+function signMat(color) {
+  return new THREE.ShaderMaterial({
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    uniforms: { uColor: { value: new THREE.Color(color) }, uTime: { value: 0 }, uSeed: { value: Math.random() * 10 } },
+    vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `uniform vec3 uColor; uniform float uTime; uniform float uSeed; varying vec2 vUv;
+      void main(){
+        // bar-code style neon strokes (kanji-sign silhouette)
+        float bars = step(0.5, fract(vUv.x * 6.0 + floor(uSeed)));
+        float rows = step(0.5, fract(vUv.y * 3.0 + floor(uSeed * 3.0)));
+        float glyph = max(bars * (1.0 - rows * 0.4), rows * 0.5);
+        float glow = smoothstep(0.0, 0.15, vUv.y) * smoothstep(1.0, 0.85, vUv.y) * smoothstep(0.0,0.06,vUv.x) * smoothstep(1.0,0.94,vUv.x);
+        float flicker = 0.85 + 0.15 * step(0.985, sin(uTime * 2.0 + uSeed * 50.0) * 0.5 + 0.5) * sin(uTime * 20.0);
+        vec3 core = uColor * (1.4 * glyph + 0.35);
+        gl_FragColor = vec4(core * flicker, glow * (0.7 * glyph + 0.3));
+      }`,
+  });
+}
+const signs = [];
+const signLights = [];
+function addSign(side, y, z, w, h, color) {
+  const mat = signMat(color);
+  const mesh = new THREE.Mesh(signGeo, mat);
+  mesh.scale.set(w, h, 1);
+  mesh.position.set(side * (ALLEY_HALF_W - 0.05), y, z);
+  mesh.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2; // face inward, down the alley corridor
+  scene.add(mesh);
+  signs.push(mat);
+  // point light so it tints the alley air, opposite wall and the ground below it
+  const light = new THREE.PointLight(new THREE.Color(color), 8, 16, 2);
+  light.position.set(side * (ALLEY_HALF_W - 0.6), y, z);
+  scene.add(light);
+  signLights.push(light);
+}
+for (let i = 0; i < 26; i++) {
+  const z = -i * 10 - 15; // keep the nearest sign well clear of the camera's start position (z=8) to avoid a bloom blowout
+  const side = i % 2 === 0 ? 1 : -1;
+  const color = SIGN_COLORS[i % SIGN_COLORS.length];
+  addSign(side, 2.4 + hash2(i, 3) * 3.4, z, 1.6 + hash2(i, 7) * 1.2, 2.2 + hash2(i, 11) * 1.6, color);
+}
+
+// ---------------------------------------------------------------- signature element: volumetric neon rain
+// Instanced elongated streaks (not dots) with additive blending — this is what actually reads as
+// "rain" at a flight-through distance; sprite points at this scale were sub-pixel and invisible.
+const RAIN_COUNT = 700;
+const rainGeo = new THREE.PlaneGeometry(0.028, 0.7);
+function rainStreakTexture() {
+  const c = document.createElement('canvas'); c.width = 8; c.height = 64;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 64);
+  grad.addColorStop(0, 'rgba(190,225,255,0)');
+  grad.addColorStop(0.5, 'rgba(190,225,255,0.95)');
+  grad.addColorStop(1, 'rgba(190,225,255,0)');
+  g.fillStyle = grad; g.fillRect(0, 0, 8, 64);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const rainMat = new THREE.MeshBasicMaterial({
+  map: rainStreakTexture(), transparent: true, opacity: 0.4, depthWrite: false,
+  blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide,
+});
+const rain = new THREE.InstancedMesh(rainGeo, rainMat, RAIN_COUNT);
+const rainX = new Float32Array(RAIN_COUNT), rainZ = new Float32Array(RAIN_COUNT);
+const rainY0 = new Float32Array(RAIN_COUNT), rainSpeed = new Float32Array(RAIN_COUNT);
+for (let i = 0; i < RAIN_COUNT; i++) {
+  rainX[i] = (Math.random() - 0.5) * (ALLEY_HALF_W * 2 + 3);
+  // keep a dead zone right around the camera (±4) — many overlapping streaks that close to the lens
+  // additively blow out to a solid white blob instead of reading as individual rain
+  const sign = Math.random() < 0.5 ? -1 : 1;
+  rainZ[i] = sign * (4 + Math.random() * 26);
+  rainY0[i] = Math.random() * 16;
+  rainSpeed[i] = 14 + Math.random() * 10;
+}
+scene.add(rain);
+const _rm = new THREE.Matrix4(), _rq = new THREE.Quaternion(), _rs = new THREE.Vector3(1, 1, 1), _rp = new THREE.Vector3();
+_rq.setFromEuler(new THREE.Euler(0.09, 0, 0)); // slight forward lean — reads as motion, not static rain
+
+// ---------------------------------------------------------------- fill light (very dim — this is a neon-only scene)
+scene.add(new THREE.AmbientLight(0x1a1030, 0.5));
+
+// ---------------------------------------------------------------- panels + HUD
+const panelWrap = document.querySelector('.panels');
+STATIONS.forEach((s, i) => {
+  const el = document.createElement('article');
+  el.className = 'panel';
+  el.innerHTML =
+    `<div class="idx mono">${String(i).padStart(2, '0')} / ${String(N - 1).padStart(2, '0')}</div>
+     <h2 class="label display">${s.label}</h2>
+     <dl class="data">${s.data.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
+     <p class="blurb">${s.blurb}</p>`;
+  panelWrap.appendChild(el);
+});
+const panels = [...panelWrap.children];
+const hudVal = document.querySelector('.hud .val');
+const hudFill = document.querySelector('.hud .rail > i');
+const root = document.documentElement;
+
+// ---------------------------------------------------------------- post
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.68, 0.5, 0.78);
+composer.addPass(bloom);
+const Grade = {
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uAberr: { value: 0.002 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime, uAberr; varying vec2 vUv;
+    float rand(vec2 c){ return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453); }
+    void main(){ vec2 d=vUv-0.5; float r2=dot(d,d);
+      vec2 off=d*uAberr*(1.0+r2*3.0);
+      vec3 col; col.r=texture2D(tDiffuse,vUv+off).r; col.g=texture2D(tDiffuse,vUv).g; col.b=texture2D(tDiffuse,vUv-off).b;
+      col *= mix(0.55,1.0, smoothstep(0.9,0.2,r2*2.2));          // vignette
+      col += (rand(vUv+uTime)-0.5)*0.03;                          // grain
+      gl_FragColor=vec4(col,1.0); }`,
+};
+const grade = new ShaderPass(Grade);
+composer.addPass(grade);
+
+// ---------------------------------------------------------------- scroll state
+smoothScroll({ lerp: 0.08 });
+document.querySelector('.spacer').style.height = (N * 100) + 'vh';
+const state = { t: 0 };
+ScrollTrigger.create({ trigger: '.spacer', start: 'top top', end: 'bottom bottom', scrub: 1,
+  onUpdate: (self) => { state.t = self.progress; } });
+
+let camZ = 0, camZTarget = 0;
+
+function updateUI(seg) {
+  // steep falloff with a hard zero below threshold — avoids two headlines double-exposing
+  // on top of each other during the crossfade midpoint between stations
+  panels.forEach((el, i) => {
+    const d = Math.abs(seg - i);
+    el.style.opacity = d > 0.45 ? 0 : (1 - d / 0.45).toFixed(3);
+  });
+  const active = Math.round(Math.min(seg, N - 1));
+  root.style.setProperty('--accent', STATIONS[active].accent);
+  const depth = Math.round(-camZ);
+  hudVal.textContent = `${depth} m`;
+  hudFill.style.width = (state.t * 100).toFixed(1) + '%';
+}
+
+// ---------------------------------------------------------------- resize + render
+onResize((w, h) => { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); composer.setSize(w, h); bloom.setSize(w, h); });
+
+loop((elapsed, dt) => {
+  const seg = state.t * (N - 1);
+  camZTarget = state.t * totalZ;
+  // frame-rate-independent smoothing so headless screenshots settle like 60fps
+  const k = 1 - Math.exp(-6.0 * dt);
+  camZ += (camZTarget - camZ) * k;
+  camera.position.z = camZ + 8;
+  // handheld sway is purely cosmetic continuous motion — skip it under reduced-motion so the
+  // camera holds still except for the scroll-driven flight itself
+  camera.position.y = 3.0 + (reducedMotion ? 0 : Math.sin(elapsed * 0.6) * 0.1);
+  camera.position.x = reducedMotion ? 0 : Math.sin(elapsed * 0.35) * 0.3;
+  camera.lookAt(camera.position.x * 0.4, 2.6, camZ - 26);
+
+  for (const m of signs) m.uniforms.uTime.value = elapsed;
+  groundUniforms.uTime.value = elapsed;
+  grade.uniforms.uTime.value = elapsed;
+
+  // rain: fall + wrap in a band that follows the camera down the alley so it always surrounds the viewer
+  for (let i = 0; i < RAIN_COUNT; i++) {
+    let y = rainY0[i] - ((elapsed * rainSpeed[i]) % 16);
+    y = ((y % 16) + 16) % 16;
+    _rp.set(rainX[i], y, camera.position.z + rainZ[i]);
+    _rm.compose(_rp, _rq, _rs);
+    rain.setMatrixAt(i, _rm);
+  }
+  rain.instanceMatrix.needsUpdate = true;
+
+  updateUI(seg);
+  composer.render();
+});
+
+// close the loader once the first frames are ready (no external textures here)
+setTimeout(() => { loader.set(1); loader.done(); }, 500);
+</script>
+</body>
+</html>
