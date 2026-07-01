@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumen — A House Defined by Light</title>
+<meta name="description" content="A cinematic scroll through an architect's house as a single day turns from golden hour to night.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=Space+Grotesk:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../shared/base.css">
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/",
+    "gsap": "https://cdn.jsdelivr.net/npm/gsap@3.13.0/index.js",
+    "gsap/ScrollTrigger": "https://cdn.jsdelivr.net/npm/gsap@3.13.0/ScrollTrigger.js",
+    "gsap/": "https://cdn.jsdelivr.net/npm/gsap@3.13.0/",
+    "lenis": "https://cdn.jsdelivr.net/npm/lenis@1.3.11/dist/lenis.mjs"
+  }
+}
+</script>
+
+<style>
+  :root {
+    --ink: #0c0a08;
+    --plaster: #e9e2d4;
+    --amber: #ff9d5c;
+    --ember: #d65a3a;
+    --dusk: #8a93b4;
+    --concrete: #9a8f80;
+  }
+  body { background: var(--ink); color: var(--plaster); }
+
+  /* type system */
+  .display { font-family: "Cormorant Garamond", Georgia, serif; font-weight: 300; line-height: .98; letter-spacing: -.01em; }
+  .util { font-family: "Space Grotesk", system-ui, sans-serif; }
+  .eyebrow {
+    font-family: "Space Grotesk", system-ui, sans-serif; font-weight: 400;
+    font-size: clamp(10px, 1vw, 12px); letter-spacing: .34em; text-transform: uppercase;
+    color: var(--amber); opacity: .92;
+  }
+
+  /* scroll scaffold: fixed canvas behind, sections give the scroll length */
+  .scroll { position: relative; z-index: 2; }
+  .panel { min-height: 100vh; display: flex; align-items: center; padding: 0 clamp(24px, 7vw, 140px); }
+  .panel.right { justify-content: flex-end; text-align: right; }
+  .panel .inner { max-width: 30ch; }
+  .panel.right .inner { align-items: flex-end; }
+
+  .panel h1 { font-size: clamp(72px, 17vw, 280px); margin: .06em 0 .1em; }
+  .panel h2 { font-size: clamp(40px, 8vw, 116px); margin: .16em 0 .22em; }
+  .panel p {
+    font-family: "Space Grotesk", system-ui, sans-serif; font-weight: 300;
+    font-size: clamp(15px, 1.5vw, 19px); line-height: 1.55; max-width: 34ch;
+    color: color-mix(in srgb, var(--plaster) 78%, transparent);
+  }
+  .panel.right p { margin-left: auto; }
+  .hero h1 { font-style: italic; }
+  .hero .sub { font-family: "Cormorant Garamond", serif; font-weight: 300; font-style: italic;
+    font-size: clamp(20px, 2.6vw, 34px); color: color-mix(in srgb, var(--plaster) 84%, transparent); }
+
+  /* signature: a vertical hour axis the marker travels down on scroll */
+  .hours {
+    position: fixed; top: 50%; right: clamp(18px, 3vw, 44px); transform: translateY(-50%);
+    z-index: 12; height: min(54vh, 460px); width: 1px;
+    background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--plaster) 35%, transparent), transparent);
+    pointer-events: none;
+  }
+  .hours .tick {
+    position: absolute; right: 14px; transform: translateY(-50%); white-space: nowrap;
+    font-family: "Space Grotesk", sans-serif; font-size: 10px; letter-spacing: .2em;
+    color: color-mix(in srgb, var(--plaster) 45%, transparent);
+  }
+  .hours .marker {
+    position: absolute; right: -3px; top: 0; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--amber); box-shadow: 0 0 14px 3px color-mix(in srgb, var(--amber) 70%, transparent);
+    transform: translate(50%, -50%); will-change: top, background, box-shadow;
+  }
+  .hours .now {
+    position: absolute; right: 16px; transform: translateY(-50%); white-space: nowrap;
+    font-family: "Space Grotesk", sans-serif; font-size: 11px; letter-spacing: .22em;
+    color: var(--plaster); will-change: top;
+  }
+
+  .credit {
+    position: fixed; left: 20px; bottom: 18px; z-index: 12;
+    font-family: "Space Grotesk", sans-serif; font-size: 10px; letter-spacing: .26em;
+    text-transform: uppercase; color: color-mix(in srgb, var(--plaster) 40%, transparent);
+  }
+  .loader { background: var(--ink); color: var(--plaster); }
+  .loader .label { font-family: "Cormorant Garamond", serif; font-style: italic; font-size: 30px; margin-bottom: 18px; opacity: .9; }
+  .loader .bar > i { background: var(--amber); }
+</style>
+</head>
+<body>
+
+<a class="back util" href="../../index.html">← Showroom</a>
+
+<div class="loader">
+  <div style="display:grid;place-items:center;gap:4px">
+    <div class="label">Lumen</div>
+    <div class="bar"><i></i></div>
+  </div>
+</div>
+
+<aside class="hours" aria-hidden="true">
+  <span class="tick" style="top:0%">16:40</span>
+  <span class="tick" style="top:50%">18:15</span>
+  <span class="tick" style="top:100%">21:00</span>
+  <span class="now util">16:40</span>
+  <span class="marker"></span>
+</aside>
+
+<div class="credit">Lumen · House No. 07 · SOLEN Architects</div>
+
+<main class="scroll">
+  <section class="panel hero">
+    <div class="inner">
+      <div class="eyebrow">SOLEN Architects — House No. 07</div>
+      <h1 class="display">Lumen</h1>
+      <div class="sub">A house drawn not in walls,&nbsp;but in light.</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="inner">
+      <div class="eyebrow">16:40 — Golden Hour</div>
+      <h2 class="display">The Threshold</h2>
+      <p>The west façade opens completely. At this hour the whole ground floor turns the colour of honey.</p>
+    </div>
+  </section>
+
+  <section class="panel right">
+    <div class="inner">
+      <div class="eyebrow">The Commons</div>
+      <h2 class="display">Where the day gathers</h2>
+      <p>One uninterrupted room. The double height pulls the last of the light all the way down to the floor.</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="inner">
+      <div class="eyebrow">18:15 — Blue Hour</div>
+      <h2 class="display">Ascent</h2>
+      <p>The stair folds along the north wall — the single surface the sun is never allowed to touch.</p>
+    </div>
+  </section>
+
+  <section class="panel right">
+    <div class="inner">
+      <div class="eyebrow">21:00 — After the Sun</div>
+      <h2 class="display">It keeps its own light</h2>
+      <p>When the sky finally gives up, the house answers from within.</p>
+    </div>
+  </section>
+
+  <section class="panel hero">
+    <div class="inner">
+      <div class="eyebrow">SOLEN Architects</div>
+      <h1 class="display" style="font-size:clamp(56px,12vw,180px)">Lumen</h1>
+      <div class="sub">Designed around a single day.</div>
+    </div>
+  </section>
+</main>
+
+<div class="scroll-cue util" aria-hidden="true">Scroll</div>
+
+<script type="module">
+import { THREE, gsap, ScrollTrigger, makeRenderer, smoothScroll, loop, onResize, loaderOverlay, reducedMotion, mapClamp } from '../../shared/lib.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+
+const loader = loaderOverlay();
+
+// ---------------------------------------------------------------- renderer / scene
+const renderer = makeRenderer();
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+scene.background = null;                       // a real sky dome fills the background, not a flat colour
+scene.fog = new THREE.FogExp2('#3a2415', 0.008);
+
+const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(15, 7, 16);
+
+// soft image-based lighting so even simple geometry reads as real
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.5).texture;
+scene.environmentIntensity = 0.4;
+
+// ---------------------------------------------------------------- sky dome
+// A real dusk sky instead of a flat clear colour: a vertical horizon→zenith
+// gradient, a soft sun glow at the sun's azimuth, and procedural stars that
+// fade in at night. Unlit + fog-exempt, pinned to the camera each frame so its
+// radius never clips. The luminous horizon also lifts the whole scene without
+// touching exposure — the background does the lighting work, not a global gain.
+const skyUniforms = {
+  uHorizon: { value: new THREE.Color('#ffb368') },
+  uZenith:  { value: new THREE.Color('#2c2742') },
+  uSunCol:  { value: new THREE.Color('#ffd9a0') },
+  uSunDir:  { value: new THREE.Vector3(-1, 0.4, 0.8).normalize() },
+  uStars:   { value: 0 },
+};
+const sky = new THREE.Mesh(
+  new THREE.SphereGeometry(180, 40, 24),
+  new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false, uniforms: skyUniforms,
+    vertexShader: `
+      varying vec3 vDir;
+      void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: /* glsl */`
+      uniform vec3 uHorizon, uZenith, uSunCol, uSunDir;
+      uniform float uStars;
+      varying vec3 vDir;
+      float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      void main(){
+        vec3 dir = normalize(vDir);
+        float h = clamp(dir.y, 0.0, 1.0);
+        vec3 col = mix(uHorizon, uZenith, pow(h, 0.5));
+        // sun glow at the horizon — a wide warm bloom plus a tight disc
+        float sd = max(dot(dir, normalize(uSunDir)), 0.0);
+        col += uSunCol * (pow(sd, 6.0) * 0.5 + pow(sd, 90.0) * 1.1);
+        // bright sliver hugging the horizon line
+        col += uHorizon * exp(-dir.y * dir.y * 40.0) * 0.18;
+        // procedural stars — upper hemisphere, night only
+        if (uStars > 0.001) {
+          vec2 uv = dir.xz / max(dir.y, 0.10);
+          vec2 g = uv * 90.0;
+          vec2 id = floor(g);
+          vec2 f = fract(g) - 0.5 - (vec2(hash(id + 3.1), hash(id + 6.7)) - 0.5) * 0.7;
+          float s = step(0.986, hash(id)) * smoothstep(0.07, 0.0, length(f)) * (0.5 + 0.5 * hash(id + 9.2));
+          col += vec3(s) * uStars * smoothstep(0.08, 0.45, dir.y);
+        }
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  })
+);
+sky.renderOrder = -1;
+scene.add(sky);
+
+// ---------------------------------------------------------------- PBR textures (Poly Haven, CC0)
+// Real diffuse/normal/roughness maps lift the big flat surfaces out of "painted box"
+// territory. Tiled via RepeatWrapping; each material's repeat is tuned to the world
+// size of its dominant face. Glass/water/metal/fabric/trees stay procedural.
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+const manager = new THREE.LoadingManager();
+const texLoader = new THREE.TextureLoader(manager);
+function pbr(name, rx, ry = rx) {
+  const tex = (suffix, srgb) => {
+    const t = texLoader.load(`./textures/${name}_${suffix}_1k.jpg`);
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(rx, ry);
+    t.anisotropy = maxAniso;
+    return t;
+  };
+  return { map: tex('diff', true), normalMap: tex('nor_gl', false), roughnessMap: tex('rough', false) };
+}
+
+// ---------------------------------------------------------------- materials
+const M = {
+  concrete: new THREE.MeshStandardMaterial({ ...pbr('concrete_floor_02', 4), color: '#c2b39c', roughness: 1, metalness: 0 }),
+  // emissive stays at 0 by day; applyDay() ramps it up after dusk so the interior
+  // surfaces glow and the house reads as a lit lantern through the glass at night.
+  warmWall: new THREE.MeshStandardMaterial({ ...pbr('painted_plaster_wall', 3, 1.2), color: '#dcc69c', roughness: 1, metalness: 0, emissive: '#ffb472', emissiveIntensity: 0 }),
+  floor: new THREE.MeshStandardMaterial({ ...pbr('wood_floor_deck', 4, 3.3), roughness: 1, metalness: 0, emissive: '#ffa050', emissiveIntensity: 0 }),
+  darkFloor: new THREE.MeshStandardMaterial({ color: '#5e4a36', roughness: 0.5, metalness: 0 }),
+  wood: new THREE.MeshStandardMaterial({ color: '#8a5a36', roughness: 0.6, metalness: 0 }),
+  fabric: new THREE.MeshStandardMaterial({ color: '#b9b2a4', roughness: 0.95, metalness: 0 }),
+  metal: new THREE.MeshStandardMaterial({ color: '#2a2723', roughness: 0.35, metalness: 0.9 }),
+  glass: new THREE.MeshStandardMaterial({ color: '#9fb8c4', roughness: 0.05, metalness: 0, transparent: true, opacity: 0.16, envMapIntensity: 0.7, side: THREE.DoubleSide }),
+  ground: new THREE.MeshStandardMaterial({ ...pbr('aerial_grass_rock', 7), roughness: 1, metalness: 0 }),
+  water: new THREE.MeshStandardMaterial({ color: '#1b2733', roughness: 0.08, metalness: 0.4, transparent: true, opacity: 0.85 }),
+  foliage: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 }),
+  trunk: new THREE.MeshStandardMaterial({ color: '#3a2c20', roughness: 0.95 }),
+};
+
+const root = new THREE.Group();
+scene.add(root);
+
+function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y + h / 2, z);
+  m.castShadow = cast; m.receiveShadow = receive;
+  root.add(m);
+  return m;
+}
+
+// ---------------------------------------------------------------- the house
+// Footprint roughly x:[-6,6] z:[-5,5]. Ground floor + a partial upper floor over the north half.
+(function buildHouse() {
+  // ground slab + terrace
+  box(40, 0.2, 40, M.ground, 0, -0.2, 0, { cast: false });
+  box(15, 0.25, 13, M.concrete, -0.5, -0.05, 1, { cast: false });        // terrace pad
+  box(12, 0.12, 10, M.floor, 0, 0.05, 0, { cast: false });               // interior floor GF
+
+  // reflecting pool on the south terrace
+  box(6, 0.06, 3.4, M.water, 3.2, 0.08, 6.4, { cast: false });
+
+  // --- ground-floor structure: mostly glass to the south (+z) and east (+x)
+  // north wall (solid, the "dark" wall the stair hugs)
+  box(12.4, 3.4, 0.25, M.warmWall, 0, 0, -5);
+  // west wall (solid with a long clerestory slot — built as lower + upper band)
+  box(0.25, 2.2, 10, M.warmWall, -6, 0, 0);
+  box(0.25, 0.7, 10, M.warmWall, -6, 2.7, 0);
+  // a couple of slender mullions standing in for the south/east glass plane
+  for (let i = -1; i <= 1; i++) box(0.12, 3.4, 0.12, M.metal, i * 3, 0, 5);
+  for (let i = -1; i <= 1; i++) box(0.12, 3.4, 0.12, M.metal, 6, 0, i * 2.6);
+  // glass planes (south + east)
+  box(12.4, 3.4, 0.04, M.glass, 0, 0, 5, { cast: false });
+  box(0.04, 3.4, 10, M.glass, 6, 0, 0, { cast: false });
+
+  // first-floor slab over the north half → double-height living room to the south
+  box(12, 0.25, 5, M.darkFloor, 0, 3.4, -2.5, { receive: true });
+  // upper volume walls
+  box(12.4, 3.0, 0.25, M.warmWall, 0, 3.65, -5);
+  box(0.25, 3.0, 5, M.warmWall, -6, 3.65, -2.5);
+  box(0.25, 3.0, 5, M.warmWall, 6, 3.65, -2.5);
+  box(12.4, 3.0, 0.04, M.glass, 0, 3.65, 0, { cast: false });     // upper glass facing the void/south
+  // roof with overhang
+  box(13.6, 0.3, 12.5, M.concrete, 0, 6.65, -0.5);
+
+  // --- stair along the north wall (folded run of treads)
+  const steps = 12;
+  for (let i = 0; i < steps; i++) {
+    box(1.4, 0.18, 0.42, M.wood, 3.2, 0.1 + i * 0.27, -3.4 - i * 0.0 + (i * 0.32) * 0 - 0 + (-2.2 + i * 0.32), { });
+  }
+
+  // --- ground-floor furniture: living commons (south-west)
+  box(3.2, 0.5, 1.5, M.fabric, -3, 0.1, 2.6);      // sofa seat
+  box(3.2, 0.6, 0.4, M.fabric, -3, 0.6, 3.3);      // sofa back
+  box(0.4, 0.45, 1.5, M.fabric, -4.5, 0.1, 2.6);   // sofa arm
+  box(0.4, 0.45, 1.5, M.fabric, -1.5, 0.1, 2.6);   // sofa arm
+  box(1.6, 0.35, 0.9, M.wood, -3, 0.05, 1.1);      // coffee table
+  // dining (south-east)
+  box(2.4, 0.08, 1.0, M.wood, 3, 0.74, 2.4);       // dining top
+  for (const dx of [-1, 1]) for (const dz of [-0.38, 0.38]) box(0.08, 0.74, 0.08, M.metal, 3 + dx, 0, 2.4 + dz);
+  for (const dx of [-0.8, 0, 0.8]) { box(0.42, 0.46, 0.42, M.wood, 3 + dx, 0, 1.7); box(0.42, 0.46, 0.42, M.wood, 3 + dx, 0, 3.1); }
+
+  // --- upper-floor furniture: bedroom (north-west, on the slab)
+  box(2.6, 0.4, 2.0, M.fabric, -3, 3.65, -3);      // bed base
+  box(2.6, 0.5, 0.3, M.wood, -3, 3.65, -3.95);     // headboard
+  box(2.4, 0.18, 1.7, M.warmWall, -3, 4.05, -2.9); // mattress/duvet
+
+  // --- trees outside: organic displaced crowns with a baked volume gradient
+  // (dark underside → sun-lit top) + per-tree hue/shape variation, so they read
+  // as a small grove instead of faceted lollipops.
+  const cTop = new THREE.Color('#73813f'), cBot = new THREE.Color('#1f2718');
+  // one lumpy, smooth-shaded, vertex-coloured crown — displacement is a sum of
+  // low-freq sines (deterministic, no facets); vertical gradient fakes AO + skylight.
+  const makeCrown = (radius, seed, hue) => {
+    const geo = new THREE.IcosahedronGeometry(radius, 4);   // detail 4 → smooth silhouette up close
+    const pos = geo.attributes.position, v = new THREE.Vector3();
+    const top = cTop.clone().offsetHSL(hue, 0, 0), bot = cBot.clone().offsetHSL(hue, 0, 0);
+    const colors = [];
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      const d = v.clone().normalize();
+      const disp = 1 + 0.13 * Math.sin(d.x * 5 + seed * 11) + 0.11 * Math.sin(d.y * 4 + seed * 23)
+                     + 0.10 * Math.sin(d.z * 6 + seed * 37);
+      v.multiplyScalar(disp);
+      pos.setXYZ(i, v.x, v.y, v.z);
+      const c = bot.clone().lerp(top, Math.pow((d.y + 1) / 2, 0.8));   // underside → top
+      colors.push(c.r, c.g, c.b);
+    }
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geo.computeVertexNormals();
+    return geo;
+  };
+  // [x, z, scale, seed] — seed drives the deterministic per-tree variation
+  for (const [tx, tz, s, seed] of [[-9, 7, 1.25, 0.17], [9, -7, 1.55, 0.61], [-11, -4, 1.0, 0.39],
+                                    [11, 5, 1.35, 0.83], [-13, 9, 0.9, 0.07], [13, -2, 1.15, 0.52]]) {
+    const t = new THREE.Group();
+    const hue = (seed - 0.5) * 0.06;                                  // subtle leaf-hue shift per tree
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08 * s, 0.22 * s, 2.0 * s, 9), M.trunk);
+    trunk.position.y = 1.0 * s; trunk.rotation.z = (seed - 0.5) * 0.18; // slight natural lean
+    trunk.castShadow = true; trunk.receiveShadow = true;
+    t.add(trunk);
+    // 5 overlapping lumps → one irregular canopy mass instead of 3 distinct balls
+    const blobs = [[0, 2.5, 0, 1.15], [0.6, 2.1, 0.25, 0.85], [-0.5, 2.25, -0.3, 0.8],
+                   [0.15, 3.0, -0.1, 0.7], [-0.25, 1.95, 0.45, 0.65]];
+    for (let bi = 0; bi < blobs.length; bi++) {
+      const [bx, by, bz, br] = blobs[bi];
+      const crown = new THREE.Mesh(makeCrown(br * s, seed + bi * 0.7, hue), M.foliage);
+      crown.position.set(bx * s, by * s, bz * s);
+      crown.castShadow = true; crown.receiveShadow = true;
+      t.add(crown);
+    }
+    t.position.set(tx, 0, tz);
+    t.rotation.y = seed * 6.28;
+    root.add(t);
+  }
+})();
+
+// ---------------------------------------------------------------- lights
+const sun = new THREE.DirectionalLight('#ffd9a0', 3.2);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 70;
+sun.shadow.camera.left = -20; sun.shadow.camera.right = 20;
+sun.shadow.camera.top = 20; sun.shadow.camera.bottom = -20;
+sun.shadow.bias = -0.0004;
+scene.add(sun, sun.target);
+
+const ambient = new THREE.HemisphereLight('#b89878', '#14110c', 0.35);
+scene.add(ambient);
+
+// interior lights that come on at night
+const interiorLights = [];
+for (const [x, y, z] of [[-3, 2.4, 2], [3, 2.4, 2], [-3, 4.6, -3], [0, 2.0, -3.5]]) {
+  const p = new THREE.PointLight('#ffca7a', 0, 12, 2);
+  p.position.set(x, y, z);
+  scene.add(p);
+  interiorLights.push(p);
+  // little fixture
+  box(0.16, 0.16, 0.16, M.metal, x, y - 0.08, z, { cast: false });
+}
+
+// ---------------------------------------------------------------- dust motes in the light
+function makeDotTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.35, 'rgba(255,255,255,0.45)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const dustCount = 380;
+const dustGeo = new THREE.BufferGeometry();
+const dpos = new Float32Array(dustCount * 3);
+for (let i = 0; i < dustCount; i++) {
+  dpos[i * 3] = (Math.random() - 0.5) * 13;
+  dpos[i * 3 + 1] = 0.3 + Math.random() * 5.6;
+  dpos[i * 3 + 2] = -4 + Math.random() * 11;
+}
+dustGeo.setAttribute('position', new THREE.BufferAttribute(dpos, 3));
+const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({
+  color: '#ffe0b0', size: 0.07, map: makeDotTexture(), transparent: true, opacity: 0.28,
+  depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true,
+}));
+scene.add(dust);
+
+// ---------------------------------------------------------------- camera rig (two curves: eye + target)
+// an elegant orbit that keeps the readable house in frame as the day passes,
+// brushes past the open glass front (a hint of going through), and ends on the
+// night-lit house glowing from within.
+const eye = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(15, 7, 16), new THREE.Vector3(17, 4.5, 7), new THREE.Vector3(12, 3, 11),
+  new THREE.Vector3(4, 4.5, 12.5), new THREE.Vector3(-3, 9, 9), new THREE.Vector3(-13, 5, 6),
+  new THREE.Vector3(-11, 3.5, 11), new THREE.Vector3(2, 4, 16), new THREE.Vector3(14, 4.5, 16),
+]);
+const aim = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(0, 2.5, 0), new THREE.Vector3(0, 2.2, 0), new THREE.Vector3(-2, 2, 2),
+  new THREE.Vector3(-1, 2.6, -1), new THREE.Vector3(-1, 3, -2), new THREE.Vector3(0, 2.5, -1),
+  new THREE.Vector3(-1, 2, 1), new THREE.Vector3(-1, 2.2, 0), new THREE.Vector3(0, 2.2, 0),
+]);
+
+// ---------------------------------------------------------------- day → night keyframes
+// hor/zen = sky-dome horizon & zenith colours; fog colour follows the horizon.
+const stops = [
+  { at: 0.00, hor: '#ffb878', zen: '#34304e', sun: '#ffc27a', sunI: 2.4, ambI: 0.55, pt: 0.0,  fog: 0.005, expo: 0.96, stars: 0.0,  sunPos: [-15, 7, 12] },
+  { at: 0.40, hor: '#f4853c', zen: '#28223a', sun: '#ff9a52', sunI: 2.2, ambI: 0.46, pt: 0.04, fog: 0.007, expo: 0.92, stars: 0.0,  sunPos: [-20, 3.5, 4] },
+  { at: 0.70, hor: '#9a6678', zen: '#171b30', sun: '#8a93c4', sunI: 0.7, ambI: 0.42, pt: 0.5,  fog: 0.011, expo: 0.9,  stars: 0.5,  sunPos: [-13, 1.5, -9] },
+  { at: 1.00, hor: '#15203c', zen: '#05070f', sun: '#3b4a86', sunI: 0.14, ambI: 0.36, pt: 1.0, fog: 0.015, expo: 1.0,  stars: 1.0,  sunPos: [-8, -1, -14] },
+];
+const _cA = new THREE.Color(), _cB = new THREE.Color(), _c = new THREE.Color();
+const lerp = (a, b, t) => a + (b - a) * t;
+function applyDay(t) {
+  let i = 0; while (i < stops.length - 2 && t > stops[i + 1].at) i++;
+  const a = stops[i], b = stops[i + 1];
+  const k = mapClamp(t, a.at, b.at, 0, 1);
+  // sky gradient + fog colour track the horizon; zenith and stars cross-fade too
+  _cA.set(a.hor); _cB.set(b.hor); _c.copy(_cA).lerp(_cB, k);
+  skyUniforms.uHorizon.value.copy(_c); scene.fog.color.copy(_c);
+  _cA.set(a.zen); _cB.set(b.zen); skyUniforms.uZenith.value.copy(_cA.lerp(_cB, k));
+  skyUniforms.uStars.value = lerp(a.stars, b.stars, k);
+  scene.fog.density = lerp(a.fog, b.fog, k);
+  _cA.set(a.sun); _cB.set(b.sun); sun.color.copy(_cA.lerp(_cB, k));
+  skyUniforms.uSunCol.value.copy(sun.color);
+  sun.intensity = lerp(a.sunI, b.sunI, k);
+  sun.position.set(lerp(a.sunPos[0], b.sunPos[0], k), lerp(a.sunPos[1], b.sunPos[1], k), lerp(a.sunPos[2], b.sunPos[2], k));
+  skyUniforms.uSunDir.value.copy(sun.position).normalize();
+  ambient.intensity = lerp(a.ambI, b.ambI, k);
+  const pt = lerp(a.pt, b.pt, k);
+  for (const p of interiorLights) p.intensity = pt * 10;     // real room fill once the sun is gone
+  M.warmWall.emissiveIntensity = pt * 0.42;                  // surfaces self-glow → bloom → lantern
+  M.floor.emissiveIntensity = pt * 0.30;
+  renderer.toneMappingExposure = lerp(a.expo, b.expo, k);
+  bloom.strength = 0.18 + pt * 0.55;
+  dust.material.opacity = 0.12 + (1 - pt) * 0.2;
+}
+
+// ---------------------------------------------------------------- post: bloom + vignette/grain
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.3, 0.5, 0.9);
+composer.addPass(bloom);
+
+const VignetteGrain = {
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uVig: { value: 1.05 }, uGrain: { value: 0.05 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D tDiffuse; uniform float uTime, uVig, uGrain; varying vec2 vUv;
+    float rand(vec2 c){ return fract(sin(dot(c, vec2(12.9898,78.233))) * 43758.5453); }
+    void main(){
+      vec3 col = texture2D(tDiffuse, vUv).rgb;
+      vec2 d = vUv - 0.5;
+      float vig = smoothstep(0.95, 0.25, dot(d, d) * uVig * 2.2);
+      col *= mix(0.55, 1.0, vig);
+      col += (rand(vUv + uTime) - 0.5) * uGrain;
+      gl_FragColor = vec4(col, 1.0);
+    }`,
+};
+const vig = new ShaderPass(VignetteGrain);
+composer.addPass(vig);
+
+// ---------------------------------------------------------------- scroll
+smoothScroll({ lerp: 0.08 });
+const state = { t: 0 };
+const marker = document.querySelector('.hours .marker');
+const nowLabel = document.querySelector('.hours .now');
+const fmtHour = (t) => { const m = Math.round(lerp(16 * 60 + 40, 21 * 60, t)); return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
+
+ScrollTrigger.create({
+  trigger: '.scroll', start: 'top top', end: 'bottom bottom', scrub: 1,
+  onUpdate: (self) => {
+    state.t = self.progress;
+    if (marker) { marker.style.top = `${self.progress * 100}%`; }
+    if (nowLabel) { nowLabel.style.top = `${self.progress * 100}%`; nowLabel.textContent = fmtHour(self.progress); }
+  },
+});
+
+// panel reveals
+if (!reducedMotion) {
+  gsap.utils.toArray('.panel .inner').forEach((el) => {
+    gsap.from(el, { opacity: 0, y: 42, duration: 1, ease: 'power2.out',
+      scrollTrigger: { trigger: el, start: 'top 82%', end: 'top 45%', scrub: true } });
+  });
+}
+
+// ---------------------------------------------------------------- resize + render
+function resize(w, h) {
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  renderer.setSize(w, h); composer.setSize(w, h);
+  bloom.setSize(w, h);
+}
+onResize(resize);
+
+const _p = new THREE.Vector3(), _a = new THREE.Vector3();
+applyDay(0);
+eye.getPointAt(0, camera.position);
+aim.getPointAt(0, _a); camera.lookAt(_a);
+
+loop((elapsed) => {
+  const t = state.t;
+  eye.getPointAt(t, _p); camera.position.lerp(_p, 0.12);
+  aim.getPointAt(t, _a);
+  camera.lookAt(_a);
+  applyDay(t);
+  sky.position.copy(camera.position);          // keep the dome centred on the eye so it never clips
+  sun.target.position.set(0, 1.5, 0);
+  // drifting dust
+  dust.rotation.y = elapsed * 0.012;
+  dust.position.y = Math.sin(elapsed * 0.2) * 0.15;
+  vig.uniforms.uTime.value = elapsed;
+  composer.render();
+});
+
+// reveal once textures have decoded (or fail gracefully)
+manager.onProgress = (_url, n, total) => loader.set(total ? n / total : 1);
+manager.onLoad = () => { loader.set(1); setTimeout(() => loader.done(), 350); };
+manager.onError = () => { loader.set(1); setTimeout(() => loader.done(), 350); };
+</script>
+</body>
+</html>

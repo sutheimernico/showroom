@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Showroom — An Index of Worlds</title>
+<meta name="description" content="A lab of scroll-driven 3D web experiences. Each one is a world you fall through.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg: #06070d;
+    --ink: #eef2fb;
+    --dim: rgba(238,242,251,.52);
+    --faint: rgba(238,242,251,.30);
+    --line: rgba(255,255,255,.10);
+    --accent: #7fb4ff;
+    --live: #6fd6b4;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+
+  /* ---- ambient background ---- */
+  #stars { position: fixed; inset: 0; z-index: 0; display: block; }
+  .glow { position: fixed; z-index: 0; border-radius: 50%; filter: blur(90px); pointer-events: none; opacity: .5; }
+  .glow.cool { width: 60vw; height: 60vw; left: -14vw; top: -22vw;
+    background: radial-gradient(circle, rgba(58,104,196,.55), transparent 62%); animation: drift1 26s ease-in-out infinite; }
+  .glow.warm { width: 52vw; height: 52vw; right: -16vw; bottom: -20vw;
+    background: radial-gradient(circle, rgba(196,96,40,.42), transparent 62%); animation: drift2 32s ease-in-out infinite; }
+  @keyframes drift1 { 0%,100%{ transform: translate(0,0) scale(1); } 50%{ transform: translate(5vw,4vw) scale(1.08); } }
+  @keyframes drift2 { 0%,100%{ transform: translate(0,0) scale(1); } 50%{ transform: translate(-4vw,-3vw) scale(1.1); } }
+  .grain { position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: .035; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+
+  .wrap { position: relative; z-index: 2; max-width: 1280px; margin: 0 auto; padding: clamp(28px,6vw,80px) clamp(22px,5vw,64px) 120px; }
+
+  /* ---- header ---- */
+  header { padding: clamp(40px,9vh,120px) 0 clamp(48px,7vh,84px); }
+  .eyebrow { font-size: 12px; letter-spacing: .34em; color: var(--accent); text-transform: uppercase; margin: 0 0 26px; }
+  h1 { font-weight: 600; font-size: clamp(46px,9vw,120px); line-height: .92; letter-spacing: -.035em; margin: 0; }
+  h1 em { font-style: normal; color: var(--accent); }
+  .lede { max-width: 50ch; margin: 30px 0 0; font-size: clamp(16px,1.8vw,20px); line-height: 1.6; color: var(--dim); font-weight: 400; }
+  .meta-row { display: flex; flex-wrap: wrap; gap: 28px; margin-top: 38px; font-size: 12px; letter-spacing: .12em; color: var(--faint); }
+  .meta-row b { color: var(--ink); font-weight: 500; }
+
+  /* ---- section heads ---- */
+  .sec-head { display: flex; align-items: baseline; gap: 16px; margin: clamp(36px,6vh,72px) 0 26px; }
+  .sec-head h2 { font-size: 13px; letter-spacing: .26em; text-transform: uppercase; color: var(--dim); margin: 0; font-weight: 500; }
+  .sec-head .rule { flex: 1; height: 1px; background: var(--line); }
+  .sec-head .count { font-size: 12px; color: var(--faint); }
+
+  /* ---- featured cards ---- */
+  .featured { display: grid; gap: clamp(20px,2.4vw,30px); grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
+  .card { position: relative; display: flex; flex-direction: column; text-decoration: none; color: inherit;
+    border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: rgba(255,255,255,.015);
+    transition: transform .4s cubic-bezier(.2,.7,.2,1), border-color .4s, box-shadow .4s; will-change: transform; }
+  .card:hover { transform: translateY(-7px); border-color: rgba(255,255,255,.28);
+    box-shadow: 0 24px 60px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04); }
+  .shot { position: relative; aspect-ratio: 16 / 10; overflow: hidden; background: #03060e; }
+  .shot img { width: 100%; height: 100%; object-fit: cover; display: block;
+    transition: transform .6s cubic-bezier(.2,.7,.2,1), filter .6s; filter: saturate(1.02); }
+  .card:hover .shot img { transform: scale(1.055); }
+  .shot::after { content: ""; position: absolute; inset: 0;
+    background: linear-gradient(to top, rgba(6,7,13,.92) 2%, rgba(6,7,13,.15) 46%, rgba(6,7,13,0) 70%); }
+  .num { position: absolute; top: 14px; left: 16px; z-index: 2; font-size: 11px; letter-spacing: .2em; color: rgba(255,255,255,.7); }
+  .enter { position: absolute; top: 14px; right: 16px; z-index: 2; font-size: 11px; letter-spacing: .16em;
+    color: var(--ink); opacity: 0; transform: translateX(-6px); transition: opacity .35s, transform .35s; }
+  .card:hover .enter { opacity: 1; transform: translateX(0); }
+  .body { position: relative; z-index: 2; padding: 0 22px 24px; margin-top: -52px; }
+  .card h3 { font-size: clamp(26px,2.6vw,34px); line-height: 1; letter-spacing: -.02em; margin: 0 0 12px; font-weight: 600; }
+  .card p { margin: 0 0 16px; font-size: 14.5px; line-height: 1.55; color: var(--dim); max-width: 38ch; }
+  .tags { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tag { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; padding: 5px 10px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--dim); }
+  .tag.dot::before { content: "●"; color: var(--live); margin-right: 7px; font-size: 8px; vertical-align: middle; }
+
+  /* ---- lab grid ---- */
+  .lab { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .tile { border: 1px solid var(--line); border-radius: 12px; padding: 18px 18px 20px; background: rgba(255,255,255,.012);
+    opacity: .62; transition: opacity .3s, border-color .3s; }
+  .tile:hover { opacity: .92; border-color: rgba(255,255,255,.18); }
+  .tile .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .tile .top .n { font-size: 11px; letter-spacing: .18em; color: var(--faint); }
+  .tile .top .st { font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint);
+    border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; }
+  .tile h4 { margin: 0 0 6px; font-size: 18px; font-weight: 500; letter-spacing: -.01em; }
+  .tile .w { font-size: 12px; color: var(--dim); }
+  .tile .v { margin-top: 12px; font-size: 11px; letter-spacing: .06em; color: var(--faint); }
+
+  footer { margin-top: clamp(56px,8vh,96px); padding-top: 28px; border-top: 1px solid var(--line);
+    display: flex; flex-wrap: wrap; gap: 14px 28px; justify-content: space-between; font-size: 12px; color: var(--faint); }
+  footer a { color: rgba(238,242,251,.55); text-decoration: underline; text-underline-offset: 2px; }
+  footer a:hover { color: var(--accent); }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .glow { animation: none; }
+    .card, .shot img { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="stars"></canvas>
+<div class="glow cool" aria-hidden="true"></div>
+<div class="glow warm" aria-hidden="true"></div>
+<div class="grain" aria-hidden="true"></div>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow mono">Showroom · WebGL Lab</p>
+    <h1>An index of<br><em>worlds.</em></h1>
+    <p class="lede">A lab of scroll-driven 3D experiences — each one a place you fall through.
+      One scroll value drives the camera, the shaders, the light. No video, no trickery: every frame is rendered live.</p>
+    <div class="meta-row mono">
+      <span><b id="liveCount">3</b> live</span>
+      <span><b id="totalCount">22</b> in the plan</span>
+      <span>Three.js · GSAP · GLSL</span>
+      <span>Best viewed on a desktop</span>
+    </div>
+  </header>
+
+  <div class="sec-head">
+    <h2>Live now</h2><span class="rule"></span><span class="count mono" id="liveCountB">3 pieces</span>
+  </div>
+  <div class="featured" id="featured"></div>
+
+  <div class="sec-head">
+    <h2>In the lab</h2><span class="rule"></span><span class="count mono" id="labCount">— coming</span>
+  </div>
+  <div class="lab" id="lab"></div>
+
+  <footer class="mono">
+    <span>Showroom — a portfolio of jaw-dropping web 3D.</span>
+    <span>Rendered live in your browser.</span>
+    <span>Planet &amp; ring textures © <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a>, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC&nbsp;BY&nbsp;4.0</a>.</span>
+  </footer>
+</div>
+
+<script>
+  // ---- design registry (mirrors PLAN.md) ----
+  const LIVE = [
+    { num: '01', slug: '01-house-walkthrough', title: 'Lumen, House 07',
+      desc: 'Orbit a glass house from golden hour into night — the interior slowly starts to keep its own light.',
+      tags: ['House', 'Warm cinematic', 'Orbit + bloom'] },
+    { num: '03', slug: '03-solar-journey', title: 'To the Edge',
+      desc: 'Fall outward from the Sun, past every planet, to a black hole that folds light into a single ring.',
+      tags: ['Solar system', 'Dark cosmic', 'Shaders + bloom'] },
+    { num: '21', slug: '21-earth-descent', title: 'To the Core',
+      desc: 'Cut the planet open and descend through crust, mantle and molten outer core to its solid iron heart.',
+      tags: ['Earth interior', 'Realistic awe', 'Cutaway + heat'] },
+  ];
+  const LAB = [
+    ['02','cyberpunk-alley','Cyberpunk Alley','Neon-rain flight','dark neon'],
+    ['04','deep-descent','Deep Descent','Surface → abyss','bioluminescent'],
+    ['05','cathedral','Cathedral','Light shafts + dust','chiaroscuro'],
+    ['06','product-reveal','Product Reveal','Rotate & explode','bright premium'],
+    ['07','exploded-gadget','Exploded Gadget','Burst into parts','editorial'],
+    ['08','particle-morph','Particle Morph','Point cloud morphs','dark neon'],
+    ['09','raymarch-fractal','Fractal Tunnel','Endless SDF march','psychedelic'],
+    ['10','glass-blob','Glass Blob','Refraction on mouse','clean dark'],
+    ['11','aurora-hero','Aurora','Silk gradient + type','editorial'],
+    ['12','webgl-gallery','Photo Gallery','Distortion morphs','editorial'],
+    ['13','kinetic-type','Kinetic Type','Type rotates/shatters','bold mono'],
+    ['14','depth-tunnel','Z-Tunnel','Fog flythrough','minimal dark'],
+    ['15','data-globe','Data Globe','Dot-globe live data','dark tech'],
+    ['16','forest-walk','Forest Walk','Instanced god rays','organic gold'],
+    ['17','anatomy-zoom','Anatomy Zoom','Skin → organs → DNA','clean medical'],
+    ['18','black-hole','Black Hole','Gravitational lensing','dark dramatic'],
+    ['19','fluid-sim','Fluid','Interactive smoke','hypnotic'],
+    ['20','art-gallery','Art Gallery','Walk perfect light','bright editorial'],
+    ['22','goal-strike','Goal Strike','Ball curls into the net','floodlit night'],
+  ];
+
+  const featured = document.getElementById('featured');
+  LIVE.forEach((d) => {
+    const a = document.createElement('a');
+    a.className = 'card'; a.href = `designs/${d.slug}/`;
+    a.innerHTML = `
+      <div class="shot">
+        <span class="num mono">${d.num} / 22</span>
+        <span class="enter mono">Enter →</span>
+        <img src="assets/posters/${d.slug}.png" alt="${d.title}" loading="lazy">
+      </div>
+      <div class="body">
+        <h3>${d.title}</h3>
+        <p>${d.desc}</p>
+        <div class="tags">
+          <span class="tag dot mono">Live</span>
+          ${d.tags.map((t) => `<span class="tag mono">${t}</span>`).join('')}
+        </div>
+      </div>`;
+    featured.appendChild(a);
+  });
+
+  const lab = document.getElementById('lab');
+  LAB.forEach(([num, slug, title, world, vibe]) => {
+    const el = document.createElement('div');
+    el.className = 'tile';
+    el.innerHTML = `
+      <div class="top"><span class="n mono">${num} / 22</span><span class="st mono">In the lab</span></div>
+      <h4>${title}</h4><div class="w">${world}</div><div class="v mono">${vibe}</div>`;
+    lab.appendChild(el);
+  });
+  document.getElementById('labCount').textContent = `${LAB.length} concepts`;
+  document.getElementById('liveCount').textContent = LIVE.length;
+  document.getElementById('liveCountB').textContent = `${LIVE.length} pieces`;
+  document.getElementById('totalCount').textContent = LIVE.length + LAB.length;
+
+  // ---- lightweight starfield (frozen for reduced-motion) ----
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const cv = document.getElementById('stars'), cx = cv.getContext('2d');
+  let stars = [], W, H, dpr = Math.min(devicePixelRatio || 1, 2);
+  function resize() {
+    W = cv.width = innerWidth * dpr; H = cv.height = innerHeight * dpr;
+    cv.style.width = innerWidth + 'px'; cv.style.height = innerHeight + 'px';
+    const n = Math.round((innerWidth * innerHeight) / 9000);
+    stars = Array.from({ length: n }, () => ({
+      x: Math.random() * W, y: Math.random() * H,
+      r: (Math.random() * 1.1 + 0.2) * dpr,
+      a: Math.random(), s: Math.random() * 0.6 + 0.2,
+      tw: Math.random() * Math.PI * 2,
+    }));
+  }
+  function draw(t) {
+    cx.clearRect(0, 0, W, H);
+    for (const st of stars) {
+      const tw = reduce ? st.a : 0.5 + 0.5 * Math.sin(st.tw + t * 0.0012 * st.s);
+      cx.globalAlpha = 0.25 + tw * 0.6;
+      cx.fillStyle = st.r > 1.6 * dpr ? '#bcd2ff' : '#ffffff';
+      cx.beginPath(); cx.arc(st.x, st.y, st.r, 0, 6.283); cx.fill();
+      if (!reduce) { st.y += st.s * 0.12 * dpr; if (st.y > H) { st.y = 0; st.x = Math.random() * W; } }
+    }
+    cx.globalAlpha = 1;
+    if (!reduce) requestAnimationFrame(draw);
+  }
+  addEventListener('resize', resize);
+  resize();
+  if (reduce) draw(0); else requestAnimationFrame(draw);
+</script>
+</body>
+</html>

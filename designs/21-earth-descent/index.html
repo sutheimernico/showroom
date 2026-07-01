@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>To the Core — A Descent Through the Earth</title>
+<meta name="description" content="Scroll from low orbit down through the crust, mantle and molten core to the solid heart of the planet.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../shared/base.css">
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/",
+    "gsap": "https://cdn.jsdelivr.net/npm/gsap@3.13.0/index.js",
+    "gsap/ScrollTrigger": "https://cdn.jsdelivr.net/npm/gsap@3.13.0/ScrollTrigger.js",
+    "gsap/": "https://cdn.jsdelivr.net/npm/gsap@3.13.0/",
+    "lenis": "https://cdn.jsdelivr.net/npm/lenis@1.3.11/dist/lenis.mjs"
+  }
+}
+</script>
+
+<style>
+  :root { --accent: #7fb4ff; }
+  body { background: #03060e; color: #eef4ff; }
+
+  .display { font-family: "Sora", system-ui, sans-serif; }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+
+  .scrim { position: fixed; inset: 0; z-index: 5; pointer-events: none;
+    background: linear-gradient(90deg, rgba(3,6,14,.9) 0%, rgba(3,6,14,.58) 24%, rgba(3,6,14,0) 52%); }
+
+  .panels { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+  .panel {
+    position: absolute; left: clamp(24px, 6vw, 112px); top: 50%; transform: translateY(-50%);
+    max-width: 33ch; opacity: 0; transition: opacity .55s ease; will-change: opacity;
+    text-shadow: 0 1px 26px rgba(0,0,0,.6);
+  }
+  .panel .idx { font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: .22em; color: var(--accent); margin-bottom: 18px; }
+  .panel .label {
+    font-family: "Sora", sans-serif; font-weight: 600;
+    font-size: clamp(52px, 8vw, 120px); line-height: .94; letter-spacing: -.03em; margin: 0 0 .3em;
+  }
+  .panel .data { display: grid; gap: 9px; margin: 0 0 26px; max-width: 31ch; }
+  .panel .data > div { display: flex; justify-content: space-between; gap: 16px; align-items: baseline;
+    border-top: 1px solid rgba(255,255,255,.12); padding-top: 8px; }
+  .panel .data dt { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .16em; color: rgba(238,244,255,.5); margin: 0; }
+  .panel .data dd { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: #fff; margin: 0; text-align: right; }
+  .panel .blurb { font-family: "Sora", sans-serif; font-weight: 300; font-size: clamp(15px, 1.5vw, 18px);
+    line-height: 1.62; color: rgba(238,244,255,.74); max-width: 35ch; }
+
+  /* signature: a vertical depth gauge — surface at top, core at the bottom */
+  .gauge { position: fixed; right: clamp(20px, 4vw, 60px); top: 50%; transform: translateY(-50%);
+    z-index: 8; display: flex; align-items: center; gap: 18px; }
+  .gauge .read { text-align: right; text-shadow: 0 1px 18px rgba(0,0,0,.7); }
+  .gauge .read .cap { font-family: "IBM Plex Mono", monospace; font-size: 10px; letter-spacing: .26em; color: rgba(238,244,255,.45); }
+  .gauge .read .val { font-family: "IBM Plex Mono", monospace; font-weight: 500; font-size: clamp(20px, 2.6vw, 32px);
+    color: var(--accent); transition: color .6s ease; font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .gauge .read .temp { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: rgba(238,244,255,.55); margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .gauge .track { position: relative; width: 2px; height: 56vh; background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.06)); }
+  .gauge .track .mark { position: absolute; left: 50%; top: 0%; width: 11px; height: 11px; border-radius: 50%;
+    transform: translate(-50%, -50%); background: var(--accent); box-shadow: 0 0 14px var(--accent); transition: background .6s ease; }
+  .gauge .track .ticks { position: absolute; inset: 0; }
+  .gauge .track .ticks > span { position: absolute; left: 6px; font-family: "IBM Plex Mono", monospace;
+    font-size: 9px; letter-spacing: .12em; color: rgba(238,244,255,.32); white-space: nowrap; transform: translateY(-50%); }
+
+  .loader { background: #03060e; }
+  .loader .label { font-family: "IBM Plex Mono", monospace; letter-spacing: .3em; font-size: 13px; color: var(--accent); margin-bottom: 16px; }
+  .loader .bar > i { background: var(--accent); }
+  .scroll-cue { color: rgba(238,244,255,.6); }
+  @media (max-width: 720px){ .gauge .read .temp { display:none; } .gauge .track { height: 42vh; } }
+</style>
+</head>
+<body>
+
+<a class="back mono" href="../../index.html">← Showroom</a>
+
+<div class="loader">
+  <div style="display:grid;place-items:center;gap:4px">
+    <div class="label">DEPARTING ORBIT</div>
+    <div class="bar"><i></i></div>
+  </div>
+</div>
+
+<div class="scrim" aria-hidden="true"></div>
+<div class="panels"></div>
+
+<div class="gauge">
+  <div class="read">
+    <div class="cap mono">ALTITUDE</div>
+    <div class="val mono">400 km</div>
+    <div class="temp mono">−50 °C</div>
+  </div>
+  <div class="track"><span class="ticks"></span><i class="mark"></i></div>
+</div>
+
+<div class="scroll-cue mono" aria-hidden="true">Scroll to cut it open</div>
+<div class="spacer"></div>
+
+<script type="module">
+import { THREE, gsap, ScrollTrigger, reducedMotion, makeRenderer, smoothScroll, loop, onResize, loaderOverlay, clamp } from '../../shared/lib.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+
+const loader = loaderOverlay();
+const motion = reducedMotion ? 0 : 1;
+const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const smoother = (x) => x * x * x * (x * (x * 6 - 15) + 10);
+
+// ---------------------------------------------------------------- shared GLSL
+const NOISE = `
+float hash(vec3 p){ p=fract(p*0.3183099+0.1); p*=17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+float vnoise(vec3 x){ vec3 i=floor(x),f=fract(x); f=f*f*(3.0-2.0*f);
+ return mix(mix(mix(hash(i+vec3(0,0,0)),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+            mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z); }
+float fbm(vec3 p){ float v=0.0,a=0.5; for(int i=0;i<6;i++){ v+=a*vnoise(p); p*=2.03; a*=0.5; } return v; }`;
+const VERT = `varying vec3 vObj; varying vec3 vW; varying vec3 vWN;
+  void main(){ vObj=position; vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; vWN=normalize(mat3(modelMatrix)*normal);
+  gl_Position=projectionMatrix*viewMatrix*w; }`;
+// sun toward camera/cut side (peel reads) but side-lit, not top-lit — gives a Blue-Marble terminator
+const uSun = new THREE.Vector3(0.46, 0.20, 0.62).normalize();
+
+// ---------------------------------------------------------------- renderer / scene
+const renderer = makeRenderer();
+renderer.setClearColor(0x03060e, 1);
+const scene = new THREE.Scene();
+
+// real NASA satellite maps (equirectangular) — sampled in-shader from the object-space normal
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+const manager = new THREE.LoadingManager();
+const texLoader = new THREE.TextureLoader(manager);
+const TX = (file, srgb) => {
+  const t = texLoader.load(`./textures/${file}`);
+  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  t.anisotropy = maxAniso;                       // crisp at the grazing limb angle
+  t.wrapS = THREE.RepeatWrapping;                // longitude wraps; hides the atan seam
+  return t;
+};
+const dayMap = TX('earth_day.jpg', true);
+const nightMap = TX('earth_night.jpg', true);
+const normalMap = TX('earth_normal.jpg', false);
+const specMap = TX('earth_spec.jpg', false);
+const cloudsMap = TX('earth_clouds.png', false);
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.05, 5000);
+camera.position.set(0, 0, 42);
+
+// ---------------------------------------------------------------- starfield (orbit phase)
+function dot() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d'); const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, '#fff'); grd.addColorStop(0.35, 'rgba(255,255,255,.55)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const dotTex = dot();
+const starsU = { uOpacity: { value: 1 } };
+function makeStars(count, radius) {
+  const g = new THREE.BufferGeometry();
+  const pos = new Float32Array(count * 3), siz = new Float32Array(count), col = new Float32Array(count * 3);
+  const c = new THREE.Color();
+  for (let i = 0; i < count; i++) {
+    const v = new THREE.Vector3().randomDirection().multiplyScalar(radius * (0.6 + Math.random() * 0.4));
+    pos.set([v.x, v.y, v.z], i * 3);
+    c.setHSL(0.58 + (Math.random() - 0.5) * 0.16, 0.4, 0.7 + Math.random() * 0.3);
+    col.set([c.r, c.g, c.b], i * 3);
+    siz[i] = 0.5 + Math.pow(Math.random(), 6) * 4.0;
+  }
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('size', new THREE.BufferAttribute(siz, 1));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const m = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+    uniforms: { uTex: { value: dotTex }, ...starsU },
+    vertexShader: `attribute float size; attribute vec3 color; varying vec3 vC; uniform float uOpacity;
+      void main(){ vC=color*uOpacity; vec4 mv=modelViewMatrix*vec4(position,1.0);
+      gl_PointSize=size*(320.0/-mv.z); gl_Position=projectionMatrix*mv; }`,
+    fragmentShader: `uniform sampler2D uTex; varying vec3 vC;
+      void main(){ vec4 t=texture2D(uTex, gl_PointCoord); gl_FragColor=vec4(vC,1.0)*t; }`,
+  });
+  return new THREE.Points(g, m);
+}
+const stars = makeStars(3800, 1800); scene.add(stars);
+
+const R = 10;
+// band radii on the cut face (fraction of R), shared by cap + dome
+const RR_CRUST = 0.965, RR_MANTLE = 0.55, RR_CORE = 0.19;
+
+// ---------------------------------------------------------------- the planet shell (rotates)
+const earth = new THREE.Group(); scene.add(earth);
+function shell(radius, detail, frag, uniforms, opts = {}) {
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uClip: { value: 999 }, uOpacity: { value: 1 }, uSun: { value: uSun }, ...uniforms },
+    vertexShader: VERT, fragmentShader: frag,
+    transparent: !!opts.transparent, depthWrite: opts.depthWrite !== false,
+    side: opts.side || THREE.FrontSide, blending: opts.blending || THREE.NormalBlending, fog: false,
+  });
+  const m = new THREE.Mesh(new THREE.IcosahedronGeometry(radius, detail), mat);
+  if (opts.renderOrder !== undefined) m.renderOrder = opts.renderOrder;
+  earth.add(m); return m;
+}
+
+// crust — photoreal earth from real NASA maps: albedo, topography normal, ocean specular, night lights.
+// the near half is clipped away (uClip on world z) to expose the cross-section.
+const crust = shell(R, 6, `
+  uniform float uClip; uniform vec3 uSun, uSunObj;
+  uniform sampler2D uDay, uNight, uNormal, uSpec;
+  varying vec3 vObj, vW, vWN;
+  const float INV_PI = 0.3183098862, INV_2PI = 0.1591549431;
+  void main(){
+    if (vW.z > uClip) discard;                         // manual cut plane (world z)
+    vec3 n = normalize(vObj), wn = normalize(vWN), V = normalize(cameraPosition - vW);
+    // equirectangular lookup from the object-space normal (lon/lat)
+    vec2 uv = vec2(atan(n.z, n.x) * INV_2PI + 0.5, asin(clamp(n.y, -1.0, 1.0)) * INV_PI + 0.5);
+
+    // tangent-space normal mapping → real terrain relief catches the light
+    vec3 east  = normalize(cross(vec3(0.0,1.0,0.0), n) + vec3(1e-5, 0.0, 0.0));
+    vec3 north = cross(n, east);
+    vec3 nm = texture2D(uNormal, uv).xyz * 2.0 - 1.0; nm.xy *= 1.6;       // relief strength
+    vec3 bn = normalize(east*nm.x + north*nm.y + n*max(nm.z, 0.2));
+
+    vec3 albedo = texture2D(uDay, uv).rgb;
+    float ocean = texture2D(uSpec, uv).r;              // 1 = water, 0 = land
+
+    // lighting: diffuse via the bumped normal in object space (relief lights as the globe turns)
+    float day  = smoothstep(-0.12, 0.30, dot(bn, uSunObj));
+    float dayW = smoothstep(-0.12, 0.30, dot(wn, uSun));
+    vec3  H = normalize(uSun + V);
+    float spec = pow(max(dot(wn, H), 0.0), 170.0) * ocean * dayW;         // tight sun glint on water only
+    vec3  night = texture2D(uNight, uv).rgb;
+    float ns = 1.0 - dayW;
+    vec3 lit = albedo*(0.05 + 1.0*day)
+             + vec3(1.0,0.92,0.7)*spec*0.28
+             + night*ns*ns*1.5;                                           // city lights on the dark side
+    float rim = pow(1.0 - abs(dot(wn, V)), 2.6);
+    lit += vec3(0.3,0.55,1.0) * rim * 0.8;                                // blue rim — reads the curved cut shell as 3D
+    // glowing inner rim where the crust is cut — molten edge
+    float edge = smoothstep(0.6, 0.0, abs(vW.z)) * step(vW.z, uClip + 0.4);
+    lit += vec3(1.0,0.42,0.12) * edge * 1.8;
+    gl_FragColor = vec4(lit, 1.0);
+  }`, {
+    uSunObj: { value: new THREE.Vector3().copy(uSun) },
+    uDay: { value: dayMap }, uNight: { value: nightMap }, uNormal: { value: normalMap }, uSpec: { value: specMap },
+  }, { renderOrder: 4 });
+
+// clouds — drift over the surface, fade out before the cut opens
+const clouds = shell(R * 1.018, 5, `
+  uniform float uTime, uOpacity, uClip; uniform vec3 uSun; uniform sampler2D uClouds; varying vec3 vObj, vW, vWN;
+  const float INV_PI = 0.3183098862, INV_2PI = 0.1591549431;
+  void main(){
+    if (vW.z > uClip) discard;
+    vec3 n = normalize(vObj), wn = normalize(vWN);
+    vec2 uv = vec2(atan(n.z, n.x) * INV_2PI + 0.5 + uTime*0.004, asin(clamp(n.y,-1.0,1.0)) * INV_PI + 0.5);
+    float c = texture2D(uClouds, uv).a;                // cloud density is in the alpha channel (RGB is white)
+    float day = max(dot(wn, uSun), 0.0);
+    gl_FragColor = vec4(vec3(1.0)*(0.25 + 0.85*day), c*uOpacity);
+  }`, { uClouds: { value: cloudsMap } }, { transparent: true, depthWrite: false, renderOrder: 5 });
+
+// atmosphere — soft blue limb, brightest on the day side (no hard 360° ring), fades as we close in
+const atmo = shell(R * 1.055, 4, `
+  uniform float uOpacity; uniform vec3 uSun; varying vec3 vW, vWN;
+  void main(){ vec3 V = normalize(cameraPosition - vW); vec3 wn = normalize(vWN);
+    float f = pow(1.0 - abs(dot(wn, V)), 1.9);                 // wider, softer falloff
+    float day = smoothstep(-0.25, 0.55, dot(wn, uSun));        // glow on the sun-lit limb
+    vec3 col = vec3(0.32,0.56,1.0) * f * (0.30 + 0.95*day);
+    gl_FragColor = vec4(col, f*uOpacity*(0.45 + 0.55*day)); }`,
+  {}, { transparent: true, depthWrite: false, side: THREE.BackSide, blending: THREE.AdditiveBlending, renderOrder: 1 });
+
+// ---------------------------------------------------------------- cross-section face (world-fixed)
+// a single disc on the cut plane painting concentric layers: crust → mantle → outer core → inner core.
+const capMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 }, uR: { value: R },
+    uRCrust: { value: RR_CRUST }, uRMantle: { value: RR_MANTLE }, uRCore: { value: RR_CORE } },
+  side: THREE.DoubleSide, fog: false,
+  vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: NOISE + `
+    uniform float uTime, uR, uRCrust, uRMantle, uRCore; varying vec2 vP;
+    void main(){
+      float r = length(vP) / uR;          // 0 (centre) .. 1 (rim)
+      float a = atan(vP.y, vP.x);
+      vec3 sp = vec3(vP * 0.46, 0.0);
+      float swirl = fbm(sp * 1.5 + vec3(0.0, 0.0, uTime * 0.05));
+      float plume = fbm(vec3(a * 1.7, r * 5.5, uTime * 0.09));     // radial convection
+      float churn = clamp(swirl * 0.55 + plume * 0.6, 0.0, 1.0);
+
+      vec3 cCrust   = vec3(0.16, 0.14, 0.15);
+      vec3 mantle   = mix(vec3(0.24,0.045,0.018), vec3(0.85,0.26,0.05), smoothstep(0.18, 0.92, churn));
+      vec3 outer    = mix(vec3(1.0,0.45,0.07),    vec3(1.0,0.78,0.34), smoothstep(0.22, 0.95, swirl));
+      vec3 inner    = mix(vec3(1.0,0.82,0.5),     vec3(1.0,0.97,0.82), smoothstep(0.2, 0.9, swirl));
+
+      // assemble inside-out
+      vec3 col = cCrust;
+      col = mix(col, mantle, smoothstep(uRCrust+0.006, uRCrust-0.006, r));
+      col = mix(col, outer,  smoothstep(uRMantle+0.012, uRMantle-0.012, r));
+      col = mix(col, inner,  smoothstep(uRCore+0.014, uRCore-0.014, r));
+
+      // emissive ramp: cold crust → white-hot core (kept low so only the tiny core blooms)
+      float em = 0.25;
+      em = mix(em, 0.5,  smoothstep(uRCrust, uRCrust-0.02, r));
+      em = mix(em, 0.85, smoothstep(uRMantle, uRMantle-0.02, r));
+      em = mix(em, 1.3,  smoothstep(uRCore, uRCore-0.02, r));
+      col *= em;
+      col += vec3(1.0,0.6,0.25) * 0.16 * smoothstep(0.3, 0.0, r);     // tight core halo
+
+      // thin dark discontinuity lines at each boundary (Moho / CMB / ICB)
+      float line = smoothstep(0.012,0.0,abs(r-uRCrust)) + smoothstep(0.014,0.0,abs(r-uRMantle)) + smoothstep(0.012,0.0,abs(r-uRCore));
+      col *= (1.0 - 0.45 * clamp(line,0.0,1.0));
+
+      if (r > 1.0) discard;
+      gl_FragColor = vec4(col, 1.0);
+    }`,
+});
+const cap = new THREE.Mesh(new THREE.CircleGeometry(R, 160), capMat);
+cap.renderOrder = 2; scene.add(cap);
+
+// inner core — a small white-hot dome that pokes out of the cut face for real 3D depth
+const coreDome = new THREE.Mesh(
+  new THREE.IcosahedronGeometry(R * RR_CORE, 4),
+  new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } }, fog: false,
+    vertexShader: VERT,
+    fragmentShader: NOISE + `
+      uniform float uTime; varying vec3 vObj, vW, vWN;
+      void main(){
+        vec3 n = normalize(vObj), wn = normalize(vWN), V = normalize(cameraPosition - vW);
+        float v = fbm(n*3.0 + vec3(uTime*0.05));
+        vec3 col = mix(vec3(1.0,0.88,0.6), vec3(1.0,1.0,0.93), v);
+        float fres = pow(1.0 - clamp(dot(wn,V),0.0,1.0), 1.8);
+        col += vec3(1.0,0.72,0.4)*fres*0.6;
+        gl_FragColor = vec4(col*1.3, 1.0);
+      }`,
+  })
+);
+coreDome.renderOrder = 3; scene.add(coreDome);
+
+// ---------------------------------------------------------------- embers (heat rising off the cut face)
+const emberU = { uTime: { value: 0 }, uOpacity: { value: 0 }, uTex: { value: dotTex } };
+function makeEmbers(count) {
+  const g = new THREE.BufferGeometry();
+  const pos = new Float32Array(count * 3), siz = new Float32Array(count), spd = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    const ang = Math.random() * Math.PI * 2, rad = 0.8 + Math.random() * 6.4;
+    pos.set([Math.cos(ang) * rad, Math.sin(ang) * rad, 0.3 + Math.random() * 2.4], i * 3);
+    siz[i] = 0.5 + Math.random() * 2.0; spd[i] = 0.3 + Math.random() * 0.9;
+  }
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('size', new THREE.BufferAttribute(siz, 1));
+  g.setAttribute('spd', new THREE.BufferAttribute(spd, 1));
+  const m = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+    uniforms: emberU,
+    vertexShader: `attribute float size; attribute float spd; uniform float uTime; varying float vF;
+      void main(){ vec3 p = position; float y = mod(p.y + uTime*spd*0.6 + 9.0, 17.0) - 8.5; p.y = y;
+        vF = clamp(1.0 - abs(y)/8.5, 0.0, 1.0);
+        vec4 mv = modelViewMatrix*vec4(p,1.0); gl_PointSize = size*(300.0/-mv.z); gl_Position = projectionMatrix*mv; }`,
+    fragmentShader: `uniform sampler2D uTex; uniform float uOpacity; varying float vF;
+      void main(){ vec4 t = texture2D(uTex, gl_PointCoord); vec3 c = mix(vec3(1.0,0.35,0.05), vec3(1.0,0.85,0.4), vF);
+        gl_FragColor = vec4(c, 1.0)*t*uOpacity*vF; }`,
+  });
+  return new THREE.Points(g, m);
+}
+const embers = makeEmbers(600); scene.add(embers);
+
+// ---------------------------------------------------------------- stations / panels
+const STATIONS = [
+  { t: 0.04, label: 'Blue Marble', accent: '#7fb4ff',
+    data: [['VANTAGE', 'Low orbit'], ['ALTITUDE', '400 km'], ['Ø', '12 742 km']],
+    blurb: 'Seen from orbit: a film of water and air over a ball of rock. Scroll to cut it open.' },
+  { t: 0.20, label: 'Atmosphere', accent: '#8fd2ff',
+    data: [['LAYER', 'Troposphere'], ['HEIGHT', '0–100 km'], ['AIR', 'N₂ 78 · O₂ 21']],
+    blurb: 'Thinner than it looks — a hundred kilometres of breathable air, then nothing. All weather lives in the lowest twelve.' },
+  { t: 0.40, label: 'Crust', accent: '#6fd6b4',
+    data: [['DEPTH', '0–70 km'], ['TEMP', '15–400 °C'], ['ROCK', 'Silicate']],
+    blurb: 'The thin skin — a fractured shell of plates drifting on the heat below, barely 0.5% of the radius thick.' },
+  { t: 0.58, label: 'Mantle', accent: '#ff7a3c',
+    data: [['DEPTH', '70–2 890 km'], ['TEMP', '500–4 000 °C'], ['STATE', 'Solid, flowing']],
+    blurb: 'Rock that creeps like syrup over millions of years. Its slow convection drives every quake and volcano above.' },
+  { t: 0.78, label: 'Outer Core', accent: '#ffb733',
+    data: [['DEPTH', '2 890–5 150 km'], ['TEMP', '~4 500 °C'], ['METAL', 'Liquid Fe–Ni']],
+    blurb: 'An ocean of molten iron, churning fast enough to wrap the planet in a magnetic field that turns the solar wind aside.' },
+  { t: 0.95, label: 'Inner Core', accent: '#fff0c8',
+    data: [['DEPTH', '5 150–6 371 km'], ['TEMP', '~5 200 °C'], ['STATE', 'Solid iron']],
+    blurb: 'Hotter than the surface of the Sun, yet solid — pressure crushes the iron still. The heart of the world.' },
+];
+const panelWrap = document.querySelector('.panels');
+STATIONS.forEach((s, i) => {
+  const el = document.createElement('article'); el.className = 'panel';
+  el.innerHTML =
+    `<div class="idx mono">${String(i).padStart(2, '0')} / ${String(STATIONS.length - 1).padStart(2, '0')}</div>
+     <h2 class="label display">${s.label}</h2>
+     <dl class="data">${s.data.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
+     <p class="blurb">${s.blurb}</p>`;
+  panelWrap.appendChild(el);
+});
+const panels = [...panelWrap.children];
+
+// depth gauge ticks
+const ticksWrap = document.querySelector('.gauge .ticks');
+[['0', 'ORBIT'], ['0.20', 'ATMOS'], ['0.40', 'CRUST'], ['0.58', 'MANTLE'], ['0.78', 'O·CORE'], ['1', '6 371 km']].forEach(([p, lbl]) => {
+  const s = document.createElement('span'); s.style.top = (parseFloat(p) * 100) + '%'; s.textContent = lbl; ticksWrap.appendChild(s);
+});
+const gCap = document.querySelector('.gauge .cap');
+const gVal = document.querySelector('.gauge .val');
+const gTemp = document.querySelector('.gauge .temp');
+const gMark = document.querySelector('.gauge .mark');
+const root = document.documentElement;
+
+const SURFACE_T = 0.40;
+const fmt = (n) => Math.round(n).toLocaleString('en-US').replace(/,/g, ' ');
+const TEMP_KF = [[0, 15], [70, 400], [700, 1000], [2890, 3700], [5150, 5000], [6371, 5400]];
+function tempAt(depthKm) {
+  for (let i = 0; i < TEMP_KF.length - 1; i++) {
+    const [d0, t0] = TEMP_KF[i], [d1, t1] = TEMP_KF[i + 1];
+    if (depthKm <= d1) return t0 + (t1 - t0) * (depthKm - d0) / (d1 - d0);
+  }
+  return 5400;
+}
+function accentAt(t) {
+  let a = STATIONS[0].accent;
+  for (const s of STATIONS) if (t >= s.t - 0.001) a = s.accent;
+  return a;
+}
+
+// ---------------------------------------------------------------- camera path (full 3/4 swing into the cut)
+const CAM = [
+  [0.00,  1.2, 0.5, 42.0],   // orbit, far, near straight-on
+  [0.20,  1.6, 0.9, 30.0],   // closer, atmosphere prominent
+  [0.40, 16.0, 11.0, 21.0],  // cut fully open, steep 3/4 (~43°) — fat curved shell reads as 3D
+  [0.58, 14.6, 10.0, 19.5],  // mantle — still framing the whole cut
+  [0.78, 13.0,  9.0, 18.0],  // molten outer core, heat rising
+  [1.00, 11.6,  8.0, 16.5],  // glowing heart, structure still legible (no dive into the white)
+];
+function camAt(t) {
+  for (let i = 0; i < CAM.length - 1; i++) {
+    const a = CAM[i], b = CAM[i + 1];
+    if (t <= b[0] || i === CAM.length - 2) {
+      const k = smoother(clamp((t - a[0]) / (b[0] - a[0]), 0, 1));
+      return [a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k, a[3] + (b[3] - a[3]) * k];
+    }
+  }
+  const l = CAM[CAM.length - 1]; return [l[1], l[2], l[3]];
+}
+
+// ---------------------------------------------------------------- post
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.35, 0.55, 0.8);
+composer.addPass(bloom);
+const Grade = {
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uHeat: { value: 0 }, uAberr: { value: 0.00012 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime, uHeat, uAberr; varying vec2 vUv;
+    float rand(vec2 c){ return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453); }
+    void main(){ vec2 d=vUv-0.5; float r2=dot(d,d);
+      vec2 off=d*uAberr*(1.0+r2*3.0);
+      vec3 col; col.r=texture2D(tDiffuse,vUv+off).r; col.g=texture2D(tDiffuse,vUv).g; col.b=texture2D(tDiffuse,vUv-off).b;
+      col *= mix(vec3(1.0), vec3(1.1,0.93,0.8), uHeat);                  // warm as we descend
+      col *= mix(0.6, 1.0, smoothstep(0.95, 0.16, r2*(2.0+uHeat*1.0)));   // vignette, tighter when hot
+      col += (rand(vUv+uTime)-0.5)*0.024;                                // grain
+      gl_FragColor=vec4(col,1.0); }`,
+};
+const grade = new ShaderPass(Grade); composer.addPass(grade);
+
+// ---------------------------------------------------------------- scroll
+smoothScroll({ lerp: 0.075 });
+document.querySelector('.spacer').style.height = '650vh';
+const state = { t: 0 };
+ScrollTrigger.create({ trigger: '.spacer', start: 'top top', end: 'bottom bottom', scrub: 1,
+  onUpdate: (self) => { state.t = self.progress; } });
+
+function updateUI(t) {
+  panels.forEach((el, i) => {
+    const w = (i === 0 || i === panels.length - 1) ? 0.11 : 0.10;
+    el.style.opacity = clamp(1 - Math.abs(t - STATIONS[i].t) / w, 0, 1).toFixed(3);
+  });
+  root.style.setProperty('--accent', accentAt(t));
+  if (t < SURFACE_T) {
+    const alt = (1 - t / SURFACE_T) * 400;
+    gCap.textContent = 'ALTITUDE'; gVal.textContent = fmt(alt) + ' km'; gTemp.textContent = '−50 °C';
+  } else {
+    const depth = (t - SURFACE_T) / (1 - SURFACE_T) * 6371;
+    gCap.textContent = 'DEPTH'; gVal.textContent = fmt(depth) + ' km'; gTemp.textContent = fmt(tempAt(depth)) + ' °C';
+  }
+  gMark.style.top = (t * 100).toFixed(1) + '%';
+}
+
+// ---------------------------------------------------------------- resize + render
+onResize((w, h) => { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); composer.setSize(w, h); bloom.setSize(w, h); });
+
+loop((elapsed, dt) => {
+  const t = state.t;
+  const [cx, cy, cz] = camAt(t); camera.position.set(cx, cy, cz); camera.lookAt(0, 0, 0);
+  earth.rotation.y = elapsed * 0.025 * motion + 0.6;
+  // object-space sun (inverse Y-rotation of the world sun) so the surface relief lights correctly as the globe turns
+  const a = earth.rotation.y, ca = Math.cos(a), sa = Math.sin(a);
+  crust.material.uniforms.uSunObj.value.set(uSun.x * ca - uSun.z * sa, uSun.y, uSun.x * sa + uSun.z * ca);
+
+  // the cut: near half clips away between 0.30 and 0.50 — the half-Earth/half-core hero lands on the Crust station
+  const clip = R * 1.3 * (1 - smoothstep(0.30, 0.50, t));
+  crust.material.uniforms.uClip.value = clip;
+  clouds.material.uniforms.uClip.value = clip;
+
+  clouds.material.uniforms.uOpacity.value = 1 - smoothstep(0.10, 0.24, t);
+  atmo.material.uniforms.uOpacity.value = 1 - smoothstep(0.16, 0.30, t);
+  starsU.uOpacity.value = 1 - smoothstep(0.12, 0.28, t);
+  emberU.uOpacity.value = smoothstep(0.45, 0.62, t) * 0.9;
+
+  // heat / bloom ramp with depth (bright stays confined to the small core → no white-out)
+  const depthFrac = smoothstep(SURFACE_T, 1.0, t);
+  bloom.strength = 0.32 + depthFrac * 0.18;
+  grade.uniforms.uHeat.value = smoothstep(0.3, 1.0, t);
+  grade.uniforms.uTime.value = elapsed;
+
+  const tm = elapsed * motion;
+  crust.material.uniforms.uTime.value = tm;
+  clouds.material.uniforms.uTime.value = tm;
+  capMat.uniforms.uTime.value = tm;
+  coreDome.material.uniforms.uTime.value = tm;
+  emberU.uTime.value = tm;
+  stars.rotation.y = elapsed * 0.004 * motion;
+
+  updateUI(t);
+  composer.render();
+});
+
+// close the loader once the satellite maps are decoded (or on error, so it never hangs)
+manager.onLoad = () => { loader.set(1); setTimeout(() => loader.done(), 400); };
+manager.onError = () => { loader.set(1); setTimeout(() => loader.done(), 500); };
+</script>
+</body>
+</html>

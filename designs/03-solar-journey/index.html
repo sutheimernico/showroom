@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fall Outward — A Journey Through the Solar System</title>
+<meta name="description" content="Scroll from the Sun past every planet to the edge of light, where a black hole waits.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../shared/base.css">
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/",
+    "gsap": "https://cdn.jsdelivr.net/npm/gsap@3.13.0/index.js",
+    "gsap/ScrollTrigger": "https://cdn.jsdelivr.net/npm/gsap@3.13.0/ScrollTrigger.js",
+    "gsap/": "https://cdn.jsdelivr.net/npm/gsap@3.13.0/",
+    "lenis": "https://cdn.jsdelivr.net/npm/lenis@1.3.11/dist/lenis.mjs"
+  }
+}
+</script>
+
+<style>
+  :root { --accent: #9fc0ff; }
+  body { background: #01020a; color: #eaf0ff; }
+
+  .display { font-family: "Space Grotesk", system-ui, sans-serif; }
+  .mono { font-family: "Space Mono", ui-monospace, monospace; }
+
+  /* data cards, one per station, faded in/out by JS */
+  .panels { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+  .panel {
+    position: absolute; left: clamp(24px, 6vw, 110px); top: 50%; transform: translateY(-50%);
+    max-width: 32ch; opacity: 0; transition: opacity .5s ease; will-change: opacity;
+  }
+  .panel .idx { font-family: "Space Mono", monospace; font-size: 12px; letter-spacing: .2em; color: var(--accent); margin-bottom: 18px; }
+  .panel .label {
+    font-family: "Space Grotesk", sans-serif; font-weight: 500;
+    font-size: clamp(54px, 8.5vw, 132px); line-height: .92; letter-spacing: -.02em; margin: 0 0 .28em;
+  }
+  .panel .data { display: grid; gap: 9px; margin: 0 0 26px; max-width: 30ch; }
+  .panel .data > div { display: flex; justify-content: space-between; gap: 16px; align-items: baseline;
+    border-top: 1px solid rgba(255,255,255,.12); padding-top: 8px; }
+  .panel .data dt { font-family: "Space Mono", monospace; font-size: 11px; letter-spacing: .18em; color: rgba(234,240,255,.5); margin: 0; }
+  .panel .data dd { font-family: "Space Mono", monospace; font-size: 13px; color: #fff; margin: 0; text-align: right; }
+  .panel .blurb { font-family: "Space Grotesk", sans-serif; font-weight: 300; font-size: clamp(15px, 1.5vw, 18px);
+    line-height: 1.6; color: rgba(234,240,255,.72); max-width: 34ch; }
+
+  /* signature HUD: live distance from the Sun */
+  .hud { position: fixed; right: clamp(20px, 4vw, 56px); bottom: clamp(24px, 5vh, 56px); z-index: 8; text-align: right; }
+  .hud .cap { font-family: "Space Mono", monospace; font-size: 10px; letter-spacing: .26em; color: rgba(234,240,255,.45); margin-bottom: 6px; }
+  .hud .val { font-family: "Space Mono", monospace; font-weight: 700; font-size: clamp(22px, 3vw, 38px); color: var(--accent);
+    transition: color .6s ease; font-variant-numeric: tabular-nums; }
+  .hud .rail { margin-top: 14px; width: clamp(120px, 16vw, 220px); height: 1px; background: rgba(255,255,255,.14); margin-left: auto; position: relative; }
+  .hud .rail > i { position: absolute; left: 0; top: -1px; height: 3px; background: var(--accent); transition: width .15s linear, background .6s ease; }
+
+  /* left scrim — guarantees panel legibility over bright bodies (sun, gas giants) */
+  .scrim { position: fixed; inset: 0; z-index: 5; pointer-events: none;
+    background: linear-gradient(90deg, rgba(1,2,10,.78) 0%, rgba(1,2,10,.4) 20%, rgba(1,2,10,0) 44%); }
+
+  .loader { background: #01020a; }
+  .loader .label { font-family: "Space Mono", monospace; letter-spacing: .3em; font-size: 13px; color: var(--accent); margin-bottom: 16px; }
+  .loader .bar > i { background: var(--accent); }
+  .scroll-cue { color: rgba(234,240,255,.6); }
+</style>
+</head>
+<body>
+
+<a class="back mono" href="../../index.html">← Showroom</a>
+
+<div class="loader">
+  <div style="display:grid;place-items:center;gap:4px">
+    <div class="label">ENTERING ORBIT</div>
+    <div class="bar"><i></i></div>
+  </div>
+</div>
+
+<div class="scrim" aria-hidden="true"></div>
+<div class="panels"></div>
+
+<div class="hud">
+  <div class="cap mono">DISTANCE FROM THE SUN</div>
+  <div class="val mono">0 km</div>
+  <div class="rail"><i style="width:0%"></i></div>
+</div>
+
+<div class="scroll-cue mono" aria-hidden="true">Scroll to fall outward</div>
+<div class="spacer"></div>
+
+<script type="module">
+import { THREE, gsap, ScrollTrigger, makeRenderer, smoothScroll, loop, onResize, loaderOverlay, mapClamp } from '../../shared/lib.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+
+const loader = loaderOverlay();
+
+// ---------------------------------------------------------------- shared GLSL noise
+const NOISE = `
+float hash(vec3 p){ p=fract(p*0.3183099+0.1); p*=17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+float vnoise(vec3 x){ vec3 i=floor(x),f=fract(x); f=f*f*(3.0-2.0*f);
+ return mix(mix(mix(hash(i+vec3(0,0,0)),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+            mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z); }
+float fbm(vec3 p){ float v=0.0,a=0.5; for(int i=0;i<5;i++){ v+=a*vnoise(p); p*=2.02; a*=0.5; } return v; }
+`;
+
+// ---------------------------------------------------------------- data
+const BODIES = [
+  { key:'sun', label:'Sol', type:'star', r:14, x:0, accent:'#ff9d3c', realDist:0,
+    data:[['CLASS','G2V dwarf'],['SURFACE','5 500 °C'],['MASS','333 000 × Earth']],
+    blurb:'The anchor of it all — 99.86% of the system’s mass, fusing 600 million tonnes of hydrogen every second.' },
+  { key:'mercury', label:'Mercury', type:'rocky', r:1.7, x:36, accent:'#c2b2a0', realDist:57.9e6,
+    colorA:'#4f463e', colorB:'#9a8c7a', colorC:'#6b6058',
+    data:[['DISTANCE','57.9M km'],['DIAMETER','4 879 km'],['ORBIT','88 days']],
+    blurb:'Closest to the fire and scorched by it — a vast iron core wrapped in a thin, cratered shell of rock.' },
+  { key:'venus', label:'Venus', type:'rocky', r:2.5, x:58, accent:'#ffce85', atmo:'#ffce85', realDist:108.2e6,
+    colorA:'#8a6a3a', colorB:'#dcbf82', colorC:'#caa86a',
+    data:[['DISTANCE','108.2M km'],['DIAMETER','12 104 km'],['ORBIT','225 days']],
+    blurb:'A runaway greenhouse at 465 °C, hidden under crushing clouds of sulphuric acid. The hottest world here.' },
+  { key:'earth', label:'Earth', type:'earth', r:2.6, x:84, accent:'#5ab0ff', atmo:'#5aa6ff', realDist:149.6e6,
+    colorA:'#0f3a72', colorB:'#2f7d4d', colorC:'#c8a86a',
+    data:[['DISTANCE','149.6M km'],['DIAMETER','12 742 km'],['ORBIT','365 days']],
+    blurb:'The only world we know that woke up. A film of blue air, four-hundredths of the radius thick, holds back the void.' },
+  { key:'mars', label:'Mars', type:'rocky', r:2.0, x:110, accent:'#ff6f4a', atmo:'#ff7a52', realDist:227.9e6,
+    colorA:'#6e2c1c', colorB:'#c85a35', colorC:'#e3a071',
+    data:[['DISTANCE','227.9M km'],['DIAMETER','6 779 km'],['ORBIT','687 days']],
+    blurb:'The rusted desert. Dry riverbeds and Olympus Mons — three times the height of Everest — speak of a warmer past.' },
+  { key:'jupiter', label:'Jupiter', type:'gas', r:9, x:158, accent:'#e8bc80', atmo:'#e8c79a', realDist:778.5e6,
+    colorA:'#9c7244', colorB:'#d6c094', colorC:'#bf4a2c',
+    data:[['DISTANCE','778.5M km'],['DIAMETER','139 820 km'],['ORBIT','12 years']],
+    blurb:'A failed star and a giant shield. Its storm — the Great Red Spot — has churned for over three centuries.' },
+  { key:'saturn', label:'Saturn', type:'gas', r:7.6, x:212, accent:'#f0d9a0', atmo:'#f0e2bc', ring:true, realDist:1.434e9,
+    colorA:'#b89a6a', colorB:'#dccb9a', colorC:'#cdb487',
+    data:[['DISTANCE','1.43B km'],['DIAMETER','116 460 km'],['ORBIT','29 years']],
+    blurb:'The jewel — billions of icy shards, few thicker than a house, spread into rings 280 000 km across.' },
+  { key:'uranus', label:'Uranus', type:'ice', r:4.4, x:258, accent:'#a6ece4', atmo:'#b4f0ea', realDist:2.871e9,
+    colorA:'#2e8a8a', colorB:'#abe9e5', colorC:'#7fd0cc',
+    data:[['DISTANCE','2.87B km'],['DIAMETER','50 724 km'],['ORBIT','84 years']],
+    blurb:'Knocked onto its side long ago, it rolls around the Sun lying down — each pole left in 42 years of night.' },
+  { key:'neptune', label:'Neptune', type:'ice', r:4.3, x:302, accent:'#5a86ff', atmo:'#6a92ff', realDist:4.495e9,
+    colorA:'#1c2f8a', colorB:'#4f7cff', colorC:'#9ab0ff',
+    data:[['DISTANCE','4.50B km'],['DIAMETER','49 244 km'],['ORBIT','165 years']],
+    blurb:'The last planet. Winds scream across it at 2 100 km/h — the fastest in the system — over an ocean-blue haze.' },
+  { key:'hole', label:'The Edge', type:'hole', r:5, x:362, accent:'#bf8cff', realDist:-1,
+    data:[['OBJECT','Black hole'],['ESCAPE V.','> light'],['RETURN','none']],
+    blurb:'Past the last world, where gravity folds light into a ring. Whatever crosses the edge belongs to it now.' },
+];
+const OVERVIEW = { key:'overview', label:'The System', type:'overview', accent:'#9fc0ff', realDist:0,
+  data:[['STAR','1'],['PLANETS','8'],['SPAN','9 billion km']],
+  blurb:'One star, eight worlds, and the long dark between them. Scroll to fall outward — from the Sun to the edge of light.' };
+
+// ---------------------------------------------------------------- renderer / scene
+const renderer = makeRenderer();
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 4000);
+camera.position.set(-20, 55, 180);
+
+// ---------------------------------------------------------------- starfield
+function makeStars(count, radius) {
+  const g = new THREE.BufferGeometry();
+  const pos = new Float32Array(count * 3), col = new Float32Array(count * 3), siz = new Float32Array(count);
+  const c = new THREE.Color();
+  for (let i = 0; i < count; i++) {
+    const v = new THREE.Vector3().randomDirection().multiplyScalar(radius * (0.5 + Math.random() * 0.5));
+    pos.set([v.x, v.y, v.z], i * 3);
+    const t = Math.random();
+    c.setHSL(0.55 + (Math.random() - 0.5) * 0.18, 0.5, 0.6 + t * 0.4);
+    col.set([c.r, c.g, c.b], i * 3);
+    siz[i] = 0.6 + Math.pow(Math.random(), 6) * 4.5;
+  }
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.setAttribute('size', new THREE.BufferAttribute(siz, 1));
+  const m = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uTex: { value: dot() } },
+    vertexShader: `attribute float size; attribute vec3 color; varying vec3 vC;
+      void main(){ vC=color; vec4 mv=modelViewMatrix*vec4(position,1.0);
+      gl_PointSize=size*(300.0/-mv.z); gl_Position=projectionMatrix*mv; }`,
+    fragmentShader: `uniform sampler2D uTex; varying vec3 vC;
+      void main(){ vec4 t=texture2D(uTex, gl_PointCoord); gl_FragColor=vec4(vC,1.0)*t; }`,
+  });
+  return new THREE.Points(g, m);
+}
+function dot() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d'); const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, '#fff'); grd.addColorStop(0.3, 'rgba(255,255,255,0.6)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const stars = makeStars(4500, 1600);
+scene.add(stars);
+
+// ---------------------------------------------------------------- sun
+const sunUniforms = { uTime: { value: 0 } };
+const sun = new THREE.Mesh(
+  new THREE.IcosahedronGeometry(BODIES[0].r, 32),
+  new THREE.ShaderMaterial({
+    uniforms: sunUniforms,
+    vertexShader: `varying vec3 vObj; void main(){ vObj=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: NOISE + `uniform float uTime; varying vec3 vObj;
+      void main(){
+        vec3 p = normalize(vObj);
+        float h = fbm(p*3.0 + vec3(uTime*0.12)) * 0.6 + fbm(p*7.0 - vec3(uTime*0.08)) * 0.4;
+        vec3 cool = vec3(0.85,0.18,0.04), mid = vec3(1.0,0.55,0.13), hot = vec3(1.0,0.95,0.72);
+        vec3 col = mix(cool, mid, smoothstep(0.28,0.55,h));
+        col = mix(col, hot, smoothstep(0.6,0.85,h));
+        gl_FragColor = vec4(col*1.5, 1.0);
+      }`,
+  })
+);
+scene.add(sun);
+// corona
+const corona = new THREE.Mesh(
+  new THREE.IcosahedronGeometry(BODIES[0].r * 1.35, 16),
+  new THREE.ShaderMaterial({
+    transparent: true, blending: THREE.AdditiveBlending, side: THREE.BackSide, depthWrite: false,
+    uniforms: {},
+    vertexShader: `varying vec3 vN; varying vec3 vW; void main(){ vN=normalize(mat3(modelMatrix)*normal); vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; gl_Position=projectionMatrix*viewMatrix*w; }`,
+    fragmentShader: `varying vec3 vN; varying vec3 vW;
+      void main(){ vec3 v=normalize(cameraPosition-vW); float f=pow(1.0-abs(dot(vN,v)),2.2);
+        gl_FragColor=vec4(vec3(1.0,0.55,0.18)*f, f*0.9); }`,
+  })
+);
+sun.add(corona);
+
+// ---------------------------------------------------------------- textures (real planet maps)
+// Solar System Scope (CC-BY 4.0), equirectangular — sampled in-shader from the object-space normal.
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+const manager = new THREE.LoadingManager();
+const texLoader = new THREE.TextureLoader(manager);
+const MAPS = { mercury:'mercury', venus:'venus_atmosphere', earth:'earth_daymap', mars:'mars',
+  jupiter:'jupiter', saturn:'saturn', uranus:'uranus', neptune:'neptune' };
+function loadTex(file, srgb) {
+  const t = texLoader.load(`./textures/${file}`);
+  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  t.anisotropy = maxAniso; t.wrapS = THREE.RepeatWrapping;
+  return t;
+}
+
+// ---------------------------------------------------------------- planet factory
+const planetVert = `varying vec3 vObj; varying vec3 vW; varying vec3 vWN;
+  void main(){ vObj=position; vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; vWN=normalize(mat3(modelMatrix)*normal);
+  gl_Position=projectionMatrix*viewMatrix*w; }`;
+const planetFrag = `
+  uniform sampler2D uMap; varying vec3 vObj; varying vec3 vW; varying vec3 vWN;
+  const float INV_PI = 0.3183098862, INV_2PI = 0.1591549431;
+  void main(){
+    vec3 n = normalize(vObj);
+    vec3 wn = normalize(vWN);
+    vec3 L = normalize(-vW);                       // sun sits at the origin
+    float d = clamp(dot(wn, L), 0.0, 1.0);
+    float term = smoothstep(-0.05, 0.35, dot(wn, L));
+    vec2 uv = vec2(atan(n.z, n.x) * INV_2PI + 0.5, asin(clamp(n.y,-1.0,1.0)) * INV_PI + 0.5);
+    vec3 col = texture2D(uMap, uv).rgb;
+    vec3 night = col * 0.03;                        // faint dark side
+    col = mix(night, col, term) * (0.30 + 0.70*d);
+    vec3 V = normalize(cameraPosition - vW);
+    float fres = pow(1.0 - clamp(dot(wn,V),0.0,1.0), 3.0);
+    col += col * fres * 0.30 * d;                   // lit-limb glow in the body's own colour
+    gl_FragColor = vec4(col, 1.0);
+  }`;
+
+function makePlanet(cfg) {
+  const g = new THREE.Group();
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uMap:{ value: loadTex(MAPS[cfg.key] + '.jpg', true) } },
+    vertexShader: planetVert, fragmentShader: planetFrag,
+  });
+  const body = new THREE.Mesh(new THREE.IcosahedronGeometry(cfg.r, 24), mat);
+  body.rotation.z = (cfg.key === 'uranus') ? 1.6 : 0.15;
+  g.add(body);
+  if (cfg.atmo) {
+    const atmo = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(cfg.r * 1.13, 16),
+      new THREE.ShaderMaterial({
+        transparent:true, blending:THREE.AdditiveBlending, side:THREE.BackSide, depthWrite:false,
+        uniforms:{ uColor:{value:new THREE.Color(cfg.atmo)} },
+        vertexShader:`varying vec3 vN; varying vec3 vW; void main(){ vN=normalize(mat3(modelMatrix)*normal); vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; gl_Position=projectionMatrix*viewMatrix*w; }`,
+        fragmentShader:`uniform vec3 uColor; varying vec3 vN; varying vec3 vW;
+          void main(){ vec3 V=normalize(cameraPosition-vW); vec3 L=normalize(-vW);
+            float f=pow(1.0-abs(dot(vN,V)),2.4); float lit=clamp(dot(vN,L),0.0,1.0);
+            gl_FragColor=vec4(uColor*f*(0.35+0.85*lit), f); }`,
+      })
+    );
+    g.add(atmo);
+  }
+  if (cfg.ring) {
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(cfg.r * 1.35, cfg.r * 2.3, 160),
+      new THREE.ShaderMaterial({
+        transparent:true, side:THREE.DoubleSide, depthWrite:false,
+        uniforms:{ uInner:{value:cfg.r*1.35}, uOuter:{value:cfg.r*2.3},
+          uRingColor:{value:loadTex('saturn_ring_color.jpg', true)}, uRingAlpha:{value:loadTex('saturn_ring_alpha.gif', false)} },
+        vertexShader:`varying vec3 vObj; varying vec3 vW; void main(){ vObj=position; vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; gl_Position=projectionMatrix*viewMatrix*w; }`,
+        fragmentShader: `uniform float uInner; uniform float uOuter; uniform sampler2D uRingColor; uniform sampler2D uRingAlpha; varying vec3 vObj; varying vec3 vW;
+          void main(){ float r=length(vObj.xy); float t=clamp((r-uInner)/(uOuter-uInner),0.0,1.0);
+            vec3 col = texture2D(uRingColor, vec2(t, 0.5)).rgb;       // real radial ring profile
+            float a = texture2D(uRingAlpha, vec2(t, 0.5)).r;          // transparency pattern (Cassini gaps etc.)
+            gl_FragColor = vec4(col, a); }`,
+      })
+    );
+    ring.rotation.x = Math.PI * 0.5 - 0.42;
+    g.add(ring);
+  }
+  g.position.set(cfg.x, 0, 0);
+  scene.add(g);
+  return { group: g, body, mat, cfg };
+}
+const planets = BODIES.filter(b => b.type !== 'star' && b.type !== 'hole').map(makePlanet);
+
+// ---------------------------------------------------------------- black hole
+const holeCfg = BODIES.find(b => b.key === 'hole');
+const hole = new THREE.Group(); hole.position.set(holeCfg.x, 0, 0);
+const horizon = new THREE.Mesh(new THREE.SphereGeometry(holeCfg.r, 48, 48), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+hole.add(horizon);
+const photon = new THREE.Mesh(
+  new THREE.TorusGeometry(holeCfg.r * 1.06, 0.13, 24, 180),
+  new THREE.MeshBasicMaterial({ color: 0xfff2dc, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })
+);
+hole.add(photon);
+const diskUniforms = { uTime:{value:0}, uInner:{value:holeCfg.r*1.6}, uOuter:{value:holeCfg.r*5.6} };
+const disk = new THREE.Mesh(
+  new THREE.RingGeometry(holeCfg.r * 1.6, holeCfg.r * 5.6, 240, 8),
+  new THREE.ShaderMaterial({
+    transparent:true, side:THREE.DoubleSide, depthWrite:false, blending:THREE.AdditiveBlending,
+    uniforms: diskUniforms,
+    vertexShader:`varying vec3 vObj; void main(){ vObj=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: NOISE + `uniform float uTime; uniform float uInner; uniform float uOuter; varying vec3 vObj;
+      void main(){ float r=length(vObj.xy); float t=clamp((r-uInner)/(uOuter-uInner),0.0,1.0);
+        float ang=atan(vObj.y,vObj.x);
+        float swirl=fbm(vec3(ang*3.0 - uTime*0.6 + t*5.0, t*5.0, uTime*0.1));
+        vec3 hot=vec3(1.0,0.97,0.9), mid=vec3(1.0,0.6,0.25), cold=vec3(0.55,0.2,0.6);
+        vec3 col=mix(hot,mid,smoothstep(0.0,0.4,t)); col=mix(col,cold,smoothstep(0.45,1.0,t));
+        float bright=(1.0-t)*(0.55+0.7*swirl);
+        float a=smoothstep(1.0,0.7,t)*smoothstep(0.0,0.06,t)*(0.6+0.5*swirl);
+        gl_FragColor=vec4(col*bright*1.3, a); }`,
+  })
+);
+disk.rotation.x = Math.PI * 0.5 - 0.12;
+hole.add(disk);
+scene.add(hole);
+
+// ---------------------------------------------------------------- stations (camera waypoints)
+const stations = [];
+stations.push({ ...OVERVIEW, cam: { pos: new THREE.Vector3(-14, 80, 210), aim: new THREE.Vector3(168, -24, 0) } });
+for (const b of BODIES) {
+  let pos, aim = new THREE.Vector3(b.x, 0, 0);
+  if (b.type === 'star')      pos = new THREE.Vector3(b.x - 10, b.r * 0.7, b.r * 3.4);
+  else if (b.type === 'hole') pos = new THREE.Vector3(b.x - b.r * 0.4, b.r * 4.2, b.r * 9.5);
+  else if (b.ring)            pos = new THREE.Vector3(b.x - b.r * 0.4, b.r * 1.7, b.r * 6.0);
+  else if (b.type === 'gas')  pos = new THREE.Vector3(b.x - b.r * 0.6, b.r * 0.9, b.r * 4.8);
+  else                        pos = new THREE.Vector3(b.x - b.r * 0.7, b.r * 0.7, b.r * 4.2);
+  stations.push({ ...b, cam: { pos, aim } });
+}
+
+// ---------------------------------------------------------------- panels + HUD
+const panelWrap = document.querySelector('.panels');
+stations.forEach((s, i) => {
+  const el = document.createElement('article');
+  el.className = 'panel';
+  el.innerHTML =
+    `<div class="idx mono">${String(i).padStart(2, '0')} / ${String(stations.length - 1).padStart(2, '0')}</div>
+     <h2 class="label display">${s.label}</h2>
+     <dl class="data">${s.data.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
+     <p class="blurb">${s.blurb}</p>`;
+  panelWrap.appendChild(el);
+});
+const panels = [...panelWrap.children];
+const hudVal = document.querySelector('.hud .val');
+const hudFill = document.querySelector('.hud .rail > i');
+const root = document.documentElement;
+const fmtKm = (km) => km < 0 ? '∞' : km === 0 ? '0 km' : km >= 1e9 ? (km / 1e9).toFixed(2) + 'B km' : (km / 1e6).toFixed(1) + 'M km';
+
+// ---------------------------------------------------------------- post
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.7, 0.6, 0.8);
+composer.addPass(bloom);
+const Grade = {
+  uniforms: { tDiffuse:{value:null}, uTime:{value:0}, uAberr:{value:0.0015} },
+  vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime, uAberr; varying vec2 vUv;
+    float rand(vec2 c){ return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453); }
+    void main(){ vec2 d=vUv-0.5; float r2=dot(d,d);
+      vec2 off=d*uAberr*(1.0+r2*3.0);
+      vec3 col; col.r=texture2D(tDiffuse,vUv+off).r; col.g=texture2D(tDiffuse,vUv).g; col.b=texture2D(tDiffuse,vUv-off).b;
+      col *= mix(0.6,1.0, smoothstep(0.9,0.2,r2*2.2));          // vignette
+      col += (rand(vUv+uTime)-0.5)*0.025;                        // grain
+      gl_FragColor=vec4(col,1.0); }`,
+};
+const grade = new ShaderPass(Grade);
+composer.addPass(grade);
+
+// ---------------------------------------------------------------- scroll state
+smoothScroll({ lerp: 0.07 });
+document.querySelector('.spacer').style.height = (stations.length * 100) + 'vh';
+const state = { t: 0 };
+ScrollTrigger.create({ trigger: '.spacer', start: 'top top', end: 'bottom bottom', scrub: 1,
+  onUpdate: (self) => { state.t = self.progress; } });
+
+const smoother = (x) => x * x * x * (x * (x * 6 - 15) + 10);
+const _pos = new THREE.Vector3(), _aim = new THREE.Vector3(), _curAim = new THREE.Vector3().copy(stations[0].cam.aim);
+camera.position.copy(stations[0].cam.pos);
+
+function updateUI(seg) {
+  const active = Math.round(seg);
+  panels.forEach((el, i) => { el.style.opacity = Math.max(0, 1 - Math.abs(seg - i) * 1.7).toFixed(3); });
+  root.style.setProperty('--accent', stations[active].accent);
+  const i = Math.min(Math.floor(seg), stations.length - 2), f = smoother(seg - i);
+  const a = stations[i].realDist, b = stations[i + 1].realDist;
+  hudVal.textContent = (a < 0 || b < 0) ? '∞' : fmtKm(a + (b - a) * f);
+  hudFill.style.width = (state.t * 100).toFixed(1) + '%';
+}
+
+// ---------------------------------------------------------------- resize + render
+onResize((w, h) => { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); composer.setSize(w, h); bloom.setSize(w, h); });
+
+loop((elapsed, dt) => {
+  const seg = state.t * (stations.length - 1);
+  const i = Math.min(Math.floor(seg), stations.length - 2), f = smoother(seg - i);
+  _pos.lerpVectors(stations[i].cam.pos, stations[i + 1].cam.pos, f);
+  _aim.lerpVectors(stations[i].cam.aim, stations[i + 1].cam.aim, f);
+  // frame-rate-independent smoothing: same settle time at 12fps (headless) or 60fps
+  const ka = 1 - Math.exp(-7.0 * dt);
+  camera.position.lerp(_pos, ka);
+  _curAim.lerp(_aim, Math.min(1, ka * 1.3)); camera.lookAt(_curAim);
+
+  sunUniforms.uTime.value = elapsed;
+  diskUniforms.uTime.value = elapsed;
+  disk.rotation.z = elapsed * 0.06;
+  for (const p of planets) { p.body.rotation.y += dt * 0.06; }   // textures are static; just spin the bodies
+  stars.rotation.y = elapsed * 0.003;
+  grade.uniforms.uTime.value = elapsed;
+  updateUI(seg);
+  composer.render();
+});
+
+// close the loader once the planet maps are decoded (or on error, so it never hangs)
+manager.onLoad = () => { loader.set(1); setTimeout(() => loader.done(), 400); };
+manager.onError = () => { loader.set(1); setTimeout(() => loader.done(), 500); };
+</script>
+</body>
+</html>
