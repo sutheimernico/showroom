@@ -63,3 +63,20 @@ magenta/cyan at street level, consistent atmosphere/light direction, photoreal, 
 3. "Cardboard" parallax feel → procedural foreground silhouettes + atmosphere carry depth;
    transitions carry the dynamism.
 4. Big textures vs performance → WebP ≤ 2K per still, pixelRatio cap 2 (repo standard).
+
+## Outcome (2026-07-03)
+
+Implemented as designed, with one planned deviation: **risk 1 fired.** Phase 0 returned
+`403 Not enough credits` — the Higgsfield Cloud API wallet is empty (auth itself verified, 200 on
+`/v1/motions`). The piece shipped end-to-end on procedural placeholder backdrops; status ◐ in
+PLAN.md pending Nico's wallet top-up and the wow-bar call.
+
+- Built: `designs/23-apex-descent/` (5 stages, whiteout handoffs, parallax towers, rain, log-scale
+  altitude rail), `tools/higgsfield-gen.mjs` (submit/poll/download + manifest + SOURCES.md),
+  `assets/apex/manifest.json` (gates still loading — avoids 404 console errors), gallery card,
+  poster job (street stage).
+- Deviations from spec: none in architecture. Additions found necessary during verification:
+  `toneMapped:false` on backdrops (ACES crushed them), `scrub:true` instead of `scrub:1` and no
+  CSS transition on panels (both never settled at software-render fps in the shot harness).
+- Open: Phase 1 (generate 5 stills — one `node tools/higgsfield-gen.mjs` call per stage once the
+  wallet has credits), then regenerate the poster and flip PLAN.md to ☑ if it clears the bar.
