@@ -170,7 +170,7 @@
 <div class="scroll-cue util" aria-hidden="true">Scroll</div>
 
 <script type="module">
-import { THREE, gsap, ScrollTrigger, makeRenderer, makeComposer, smoothScroll, loop, onResize, loaderOverlay, reducedMotion, mapClamp } from '../../shared/lib.js';
+import { THREE, gsap, ScrollTrigger, makeRenderer, makeComposer, attachLifecycle, smoothScroll, loop, onResize, loaderOverlay, reducedMotion, mapClamp } from '../../shared/lib.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -554,6 +554,7 @@ function resize(w, h) {
   bloom.setSize(w, h);
 }
 onResize(resize);
+attachLifecycle(renderer, scene, composer);
 
 const _p = new THREE.Vector3(), _a = new THREE.Vector3();
 applyDay(0);

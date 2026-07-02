@@ -80,6 +80,30 @@ export function makeGradePass({ aberration = 0.0015, vignetteMin = 0.6, grain = 
   return new ShaderPass(Grade);
 }
 
+// Resource hygiene (PLAN.md's "no context loss" gate): frees GPU resources on pagehide so
+// quick back/forward navigation between showpieces doesn't leak GPU memory, and recovers from
+// WebGL context loss. Re-uploading every bespoke scene's GPU state by hand isn't worth it for
+// a set of one-off showpieces, so a restored context just reloads the page.
+export function attachLifecycle(renderer, scene, composer) {
+  const disposeAll = () => {
+    scene?.traverse((obj) => {
+      obj.geometry?.dispose?.();
+      const mats = Array.isArray(obj.material) ? obj.material : obj.material ? [obj.material] : [];
+      for (const mat of mats) {
+        for (const key in mat) { const v = mat[key]; if (v?.isTexture) v.dispose(); }
+        mat.dispose();
+      }
+    });
+    composer?.passes?.forEach((p) => p.dispose?.());
+    composer?.dispose?.();
+    renderer.dispose();
+  };
+  window.addEventListener('pagehide', disposeAll);
+  renderer.domElement.addEventListener('webglcontextlost', (e) => e.preventDefault());
+  renderer.domElement.addEventListener('webglcontextrestored', () => location.reload());
+  return disposeAll;
+}
+
 // Lenis smooth scroll wired into GSAP's single ticker. Exposes a deterministic
 // window.__scrollTo(0..1) for the screenshot harness. Returns null under reduced-motion.
 export function smoothScroll({ lerp = 0.1 } = {}) {

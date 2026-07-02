@@ -102,7 +102,7 @@
 <div class="spacer"></div>
 
 <script type="module">
-import { THREE, gsap, ScrollTrigger, reducedMotion, makeRenderer, makeComposer, makeGradePass, smoothScroll, loop, onResize, loaderOverlay, clamp } from '../../shared/lib.js';
+import { THREE, gsap, ScrollTrigger, reducedMotion, makeRenderer, makeComposer, makeGradePass, attachLifecycle, smoothScroll, loop, onResize, loaderOverlay, clamp } from '../../shared/lib.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
@@ -477,6 +477,7 @@ function updateUI(t) {
 
 // ---------------------------------------------------------------- resize + render
 onResize((w, h) => { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); composer.setSize(w, h); bloom.setSize(w, h); });
+attachLifecycle(renderer, scene, composer);
 
 loop((elapsed, dt) => {
   const t = state.t;
