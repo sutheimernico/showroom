@@ -179,7 +179,12 @@ function makeStars(count, radius) {
     uniforms: { uTex: { value: dot() } },
     vertexShader: `attribute float size; attribute vec3 color; varying vec3 vC;
       void main(){ vC=color; vec4 mv=modelViewMatrix*vec4(position,1.0);
-      gl_PointSize=size*(300.0/-mv.z); gl_Position=projectionMatrix*mv; }`,
+      // clamp the divisor AND the result: a star crossing the camera plane (-mv.z → 0)
+      // yields an infinite/negative point size, which ANGLE/D3D11 expands into a giant
+      // NaN quad — rasterized as a huge black rectangle over the frame
+      float d = max(-mv.z, 1.0);
+      gl_PointSize = min(size * (300.0 / d), 64.0);
+      gl_Position=projectionMatrix*mv; }`,
     fragmentShader: `uniform sampler2D uTex; varying vec3 vC;
       void main(){ vec4 t=texture2D(uTex, gl_PointCoord); gl_FragColor=vec4(vC,1.0)*t; }`,
   });
@@ -428,7 +433,9 @@ const dust = (() => {
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         float d = -mv.z;
         vFade = smoothstep(2.5, 10.0, d) * (1.0 - smoothstep(60.0, 140.0, d));
-        gl_PointSize = 42.0 / d;
+        // same guard as the starfield: unclamped size/d explodes into a giant black
+        // quad on ANGLE/D3D11 when a grain crosses the camera plane
+        gl_PointSize = clamp(42.0 / max(d, 0.75), 0.0, 48.0);
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `uniform sampler2D uTex; varying float vFade;

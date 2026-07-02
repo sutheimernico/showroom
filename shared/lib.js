@@ -47,7 +47,10 @@ function isSoftwareRenderer(renderer) {
 export function makeComposer(renderer) {
   const size = renderer.getSize(new THREE.Vector2());
   const pixelRatio = renderer.getPixelRatio();
-  const samples = renderer.capabilities.isWebGL2 && !isSoftwareRenderer(renderer) ? 4 : 0;
+  // ?nomsaa — diagnostic escape hatch: lets us A/B a suspected multisample-resolve
+  // driver artifact (e.g. black blocks on some ANGLE/D3D11 configs) without a rebuild
+  const noMsaa = new URLSearchParams(location.search).has('nomsaa');
+  const samples = renderer.capabilities.isWebGL2 && !isSoftwareRenderer(renderer) && !noMsaa ? 4 : 0;
   const target = new THREE.WebGLRenderTarget(size.width * pixelRatio, size.height * pixelRatio, {
     type: THREE.HalfFloatType,
     samples,
