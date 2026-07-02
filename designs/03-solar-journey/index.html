@@ -95,6 +95,7 @@
 import { THREE, gsap, ScrollTrigger, makeRenderer, makeComposer, makeGradePass, attachLifecycle, smoothScroll, loop, onResize, loaderOverlay, mapClamp } from '../../shared/lib.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
 const loader = loaderOverlay();
 
@@ -248,7 +249,10 @@ const corona = new THREE.Mesh(
     uniforms: {},
     vertexShader: `varying vec3 vN; varying vec3 vW; void main(){ vN=normalize(mat3(modelMatrix)*normal); vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; gl_Position=projectionMatrix*viewMatrix*w; }`,
     fragmentShader: `varying vec3 vN; varying vec3 vW;
-      void main(){ vec3 v=normalize(cameraPosition-vW); float f=pow(1.0-abs(dot(vN,v)),1.8);
+      void main(){ vec3 v=normalize(cameraPosition-vW);
+        // clamp the pow base: interpolation pushes |dot| past 1.0, and pow(negative, 1.8)
+        // is NaN in GLSL — one NaN texel smears into giant black blocks in bloom's mips
+        float f=pow(clamp(1.0-abs(dot(vN,v)),0.0,1.0),1.8);
         vec3 col = mix(vec3(0.9,0.3,0.08), vec3(1.0,0.6,0.2), f);  // redder outer falloff
         gl_FragColor=vec4(col*f, f*0.85); }`,
   })
@@ -319,7 +323,9 @@ const planetFrag = `
     vec3 L = normalize(-vW);                       // sun sits at the origin
     float d = clamp(dot(wn, L), 0.0, 1.0);
     float term = smoothstep(-0.05, 0.35, dot(wn, L));
-    vec2 uv = vec2(atan(n.z, n.x) * INV_2PI + 0.5, asin(clamp(n.y,-1.0,1.0)) * INV_PI + 0.5);
+    // atan(0,0) at the poles is undefined (NaN UVs) — nudge x when both args vanish
+    float nx = n.x + step(abs(n.x) + abs(n.z), 1e-6) * 1e-6;
+    vec2 uv = vec2(atan(n.z, nx) * INV_2PI + 0.5, asin(clamp(n.y,-1.0,1.0)) * INV_PI + 0.5);
     vec3 col = texture2D(uMap, uv).rgb;
     vec3 night = col * 0.03;                        // faint dark side
     col = mix(night, col, term) * (0.30 + 0.70*d);
@@ -341,7 +347,9 @@ const earthFrag = `
     vec3 L = normalize(-vW);
     float d = clamp(dot(wn, L), 0.0, 1.0);
     float term = smoothstep(-0.08, 0.3, dot(wn, L));
-    vec2 uv = vec2(atan(n.z, n.x) * INV_2PI + 0.5, asin(clamp(n.y,-1.0,1.0)) * INV_PI + 0.5);
+    // atan(0,0) at the poles is undefined (NaN UVs) — nudge x when both args vanish
+    float nx = n.x + step(abs(n.x) + abs(n.z), 1e-6) * 1e-6;
+    vec2 uv = vec2(atan(n.z, nx) * INV_2PI + 0.5, asin(clamp(n.y,-1.0,1.0)) * INV_PI + 0.5);
     vec3 day = texture2D(uMap, uv).rgb;
     float cl = texture2D(uClouds, vec2(uv.x + uTime*0.004, uv.y)).a;  // density lives in alpha (RGB is flat white)
     day = mix(day, vec3(1.0), cl * 0.85);                       // clouds catch the light
@@ -379,7 +387,8 @@ function makePlanet(cfg) {
         vertexShader:`varying vec3 vN; varying vec3 vW; void main(){ vN=normalize(mat3(modelMatrix)*normal); vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; gl_Position=projectionMatrix*viewMatrix*w; }`,
         fragmentShader:`uniform vec3 uColor; varying vec3 vN; varying vec3 vW;
           void main(){ vec3 V=normalize(cameraPosition-vW); vec3 L=normalize(-vW);
-            float f=pow(1.0-abs(dot(vN,V)),2.0); float lit=clamp(dot(vN,L),0.0,1.0);
+            // clamped pow base — see corona: pow(negative, x) is NaN
+            float f=pow(clamp(1.0-abs(dot(vN,V)),0.0,1.0),2.0); float lit=clamp(dot(vN,L),0.0,1.0);
             // keep the night limb dark — a uniform halo reads as a sticker ring, not air
             gl_FragColor=vec4(uColor*f*(0.22+1.25*lit), min(f*(0.35+1.05*lit), 1.0)); }`,
       })
@@ -536,6 +545,18 @@ const fmtKm = (km) => km < 0 ? '∞' : km === 0 ? '0 km' : km >= 1e9 ? (km / 1e9
 // ---------------------------------------------------------------- post
 const composer = makeComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
+// last line of defence before bloom: scrub NaN/negative/infinite texels. On real GPUs a
+// single NaN (pow of a negative base, atan(0,0), …) smears across bloom's mip chain into
+// huge black rectangles — software rasterizers never show this, so it survived headless
+// verification for days.
+composer.addPass(new ShaderPass({
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
+    void main(){ vec4 c = texture2D(tDiffuse, vUv);
+      if (c.r != c.r || c.g != c.g || c.b != c.b || c.a != c.a) c = vec4(0.0, 0.0, 0.0, 1.0);
+      gl_FragColor = clamp(c, 0.0, 64.0); }`,
+}));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.7, 0.6, 0.8);
 composer.addPass(bloom);
 const grade = makeGradePass({ aberration: 0.0015, vignetteMin: 0.6, grain: 0.025 });

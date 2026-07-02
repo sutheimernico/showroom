@@ -295,3 +295,15 @@ User-requested concepts (2026-06-29): `21-earth-descent` (build now), `22-goal-s
   distance-only (faded out by seg 0.95): at the Sol close-up it sat right on the disc and
   repainted the centre as a white pillow + streak. Bloom strength ramps 0.45→0.7 across the inner
   system.
+  **"Schwarze Flecken" (giant black rectangles) on Nico's real GPU — NaN class, hardened.**
+  Neither SwiftShader nor llvmpipe (probed via /dev/dxg → still software) reproduces it, so this
+  was diagnosed by UB audit, not screenshots. Real defects found and fixed in 03: (1) corona and
+  atmosphere computed `pow(1.0-abs(dot(N,V)), x)` UNCLAMPED — interpolation pushes |dot| past 1,
+  and `pow(negative, non-integer)` is NaN in GLSL; one NaN texel at the (huge, always-on-screen)
+  corona rim smears across UnrealBloom's mip chain into screen-scale black rectangles on real
+  drivers. (2) `atan(0,0)` at planet-texture poles → NaN UVs. (3) star/dust `gl_PointSize =
+  k/distance` unclamped → infinite/negative sizes explode into NaN quads on ANGLE/D3D11 (fixed
+  previous commit). Defence-in-depth: a NaN-scrub ShaderPass now sits between RenderPass and
+  bloom (`c != c → 0`, clamp 0..64) so any missed source dies before the mip chain; plus a
+  `?nomsaa` diagnostic flag in `shared/lib.js`. NOTE: the same unclamped-pow pattern exists in
+  01/02/21's fresnel shaders — if Nico reports black blocks there, apply the same clamp + scrub.
