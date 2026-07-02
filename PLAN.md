@@ -39,6 +39,7 @@ calibrate direction before the autonomous loop.
 | 20 | art-gallery | Art gallery | camera through 3D gallery, perfect light · path | bright editorial | ☐ |
 | 21 | earth-descent | Earth interior | satellite → cross-section cutaway: crust → mantle → outer/inner core · clip-plane + cap shader + bloom | realistic awe | ☑ |
 | 22 | goal-strike | Football stadium | scroll drives a ball curling into the net · path + net ripple + floodlight bloom + slow-mo | floodlit night, dynamic | ☐ |
+| 23 | apex-descent | Megacity | orbit→street fall · hybrid: AI matte stages (Higgsfield Soul) + parallax towers + whiteout handoffs | photoreal neon | ◐ |
 
 Reserve (swap in if one fails to land): `city-build`, `terrain-flight`, `glass-mountain`.
 
@@ -223,3 +224,32 @@ User-requested concepts (2026-06-29): `21-earth-descent` (build now), `22-goal-s
   stations read more as a bright converging particle mass than a crisply legible ring/coil (panel
   copy names the shape; the pure-visual read could still be sharper — lower density, a bigger
   hole-to-body ratio, or replacing raw additive dots with a fresnel/surface-shaded look would help).
+- 2026-07-03 — `23-apex-descent` ("Apex") built as the repo's first **hybrid AI-asset + realtime**
+  piece (new benchmark direction after Nico's "Higgsfield-level" mandate; spec:
+  `docs/superpowers/specs/2026-07-03-apex-descent-design.md`): one scroll = one uninterrupted fall
+  from 400 km orbit to a 4 m neon street across five photoreal backdrop stages, with realtime
+  parallax tower fields (02's instanceMatrix-in-ShaderMaterial pattern), whiteout cloud handoffs
+  masking the stage swaps, 02's instanced rain streaks at street level, and a log-scale altitude
+  rail (400 KM → 4 M) as the signature element. Space Grotesk/IBM Plex Mono pairing.
+  **Backdrops are procedural placeholders for now**: the Higgsfield Cloud API integration is done
+  and verified (`tools/higgsfield-gen.mjs` — protocol read out of the official Python SDK source:
+  `POST /v1/text2image/soul` with a `{params:{...}}` body, poll `status_url` until
+  completed/failed/nsfw/canceled; auth `Key $HF_API_KEY:$HF_API_SECRET` from `.env`, validated 200
+  on the free `/v1/motions` endpoint) but generation answered **`403 Not enough credits`** — the
+  API wallet is empty and topping up is Nico's move. `assets/apex/manifest.json` gates which stills
+  exist so the design never probes missing files (resource 404s are console errors = hard gate
+  violation); the gen script maintains the manifest, so `top up → one command per stage` drops
+  stills in with zero code change. Status **◐ not ☑** deliberately: objective gates pass (zero
+  console errors, bloom+grade post chain, reduced-motion, lifecycle, pixelRatio cap) but the wow
+  bar with placeholder backdrops is Nico's call (LOOP.md rule 7). Three real bugs found by looking
+  at the screenshots, all with the same lesson (verify at software-render fps, not just at 60):
+  (1) ACES tone mapping crushed the sRGB-authored backdrop canvases to near-black →
+  `toneMapped:false` on backdrop planes; (2) `scrub:1`'s time-based catch-up tween never settles
+  within shot.mjs's 1100 ms post-scroll wait at ~1–2 fps → `scrub:true` (Lenis already smooths user
+  scroll; the double smoothing was redundant); (3) the panels' CSS `transition: opacity .5s` lagged
+  the visible panel one full station behind the (transition-less) HUD in screenshots → removed, the
+  per-frame scroll-driven opacity is already smooth. `tools/poster.mjs` gained `POSTER_BASE` /
+  `POSTER_DSF` env overrides (:8080 was occupied by an unrelated service on this host; DSF 2's
+  3200×2000 buffer pushed SwiftShader past the screenshot timeout under load average ~9). Poster =
+  street stage. Note: PROJECT.md's `shared/stack.html` reference is stale — the file never existed;
+  the de-facto skeleton is 02/21.

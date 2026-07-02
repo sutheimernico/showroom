@@ -124,7 +124,7 @@
       One scroll value drives the camera, the shaders, the light. No video, no trickery: every frame is rendered live.</p>
     <div class="meta-row mono">
       <span><b id="liveCount">3</b> live</span>
-      <span><b id="totalCount">22</b> in the plan</span>
+      <span><b id="totalCount">23</b> in the plan</span>
       <span>Three.js · GSAP · GLSL</span>
       <span>Best viewed on a desktop</span>
     </div>
@@ -165,6 +165,9 @@
     { num: '08', slug: '08-particle-morph', title: 'Coherence',
       desc: 'Up to 524,288 GPU-simulated particles drift from noise into a sphere, a torus, a double helix — real WebGPU compute, TSL nodes, automatic WebGL2 fallback.',
       tags: ['Particles', 'Dark neon', 'WebGPU · TSL compute'] },
+    { num: '23', slug: '23-apex-descent', title: 'Apex',
+      desc: 'One uninterrupted fall — 400 km of low orbit down to a rain-soaked neon street, four metres above the asphalt.',
+      tags: ['Megacity descent', 'Hybrid AI stages', 'Soul stills pending'] },
   ];
   const LAB = [
     ['04','deep-descent','Deep Descent','Surface → abyss','bioluminescent'],
@@ -192,7 +195,7 @@
     a.className = 'card'; a.href = `designs/${d.slug}/`;
     a.innerHTML = `
       <div class="shot">
-        <span class="num mono">${d.num} / 22</span>
+        <span class="num mono">${d.num} / 23</span>
         <span class="enter mono">Enter →</span>
         <img src="assets/posters/${d.slug}.png" alt="${d.title}" loading="lazy">
       </div>
@@ -212,7 +215,7 @@
     const el = document.createElement('div');
     el.className = 'tile';
     el.innerHTML = `
-      <div class="top"><span class="n mono">${num} / 22</span><span class="st mono">In the lab</span></div>
+      <div class="top"><span class="n mono">${num} / 23</span><span class="st mono">In the lab</span></div>
       <h4>${title}</h4><div class="w">${world}</div><div class="v mono">${vibe}</div>`;
     lab.appendChild(el);
   });

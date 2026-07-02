@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apex — Four Hundred Kilometres Down</title>
+<meta name="description" content="One uninterrupted fall: from low orbit through the cloud deck and the tower crowns to a rain-soaked neon street, four metres above the asphalt.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../shared/base.css">
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/",
+    "gsap": "https://cdn.jsdelivr.net/npm/gsap@3.13.0/index.js",
+    "gsap/ScrollTrigger": "https://cdn.jsdelivr.net/npm/gsap@3.13.0/ScrollTrigger.js",
+    "gsap/": "https://cdn.jsdelivr.net/npm/gsap@3.13.0/",
+    "lenis": "https://cdn.jsdelivr.net/npm/lenis@1.3.11/dist/lenis.mjs"
+  }
+}
+</script>
+
+<style>
+  :root { --accent: #8fb4e8; }
+  .display { font-family: "Space Grotesk", sans-serif; }
+  .mono { font-family: "IBM Plex Mono", monospace; }
+
+  .scrim { position: fixed; inset: 0; z-index: 5; pointer-events: none;
+    background: linear-gradient(90deg, rgba(4,5,10,.86) 0%, rgba(4,5,10,.45) 24%, rgba(4,5,10,0) 50%); }
+
+  .panels { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+  .panel {
+    position: absolute; left: clamp(24px, 6vw, 110px); top: 50%; transform: translateY(-50%);
+    max-width: 34ch; opacity: 0; will-change: opacity; /* opacity is driven per-frame from scroll — a CSS transition would double-smooth and lag at low fps */
+    text-shadow: 0 1px 24px rgba(0,0,0,.75);
+  }
+  .panel .idx { font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: .22em; color: var(--accent); margin-bottom: 18px; transition: color .6s ease; }
+  .panel .label {
+    font-family: "Space Grotesk", sans-serif; font-weight: 700; text-transform: uppercase;
+    font-size: clamp(46px, 7.6vw, 118px); line-height: .92; letter-spacing: -.02em; margin: 0 0 .3em;
+  }
+  .panel .data { display: grid; gap: 9px; margin: 0 0 24px; max-width: 31ch; }
+  .panel .data > div { display: flex; justify-content: space-between; gap: 16px; align-items: baseline;
+    border-top: 1px solid rgba(255,255,255,.12); padding-top: 8px; }
+  .panel .data dt { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .16em; color: rgba(232,240,252,.5); margin: 0; }
+  .panel .data dd { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: #fff; margin: 0; text-align: right; }
+  .panel .blurb { font-family: "Space Grotesk", sans-serif; font-weight: 400; font-size: clamp(15px, 1.5vw, 18px);
+    line-height: 1.6; color: rgba(232,240,252,.78); max-width: 36ch; }
+
+  /* signature: log-scale altitude rail — 400 km to 4 m on one ruler */
+  .gauge { position: fixed; right: clamp(20px, 4vw, 60px); top: 50%; transform: translateY(-50%);
+    z-index: 8; display: flex; align-items: center; gap: 18px; }
+  .gauge .read { text-align: right; text-shadow: 0 1px 18px rgba(0,0,0,.7); }
+  .gauge .read .cap { font-family: "IBM Plex Mono", monospace; font-size: 10px; letter-spacing: .26em; color: rgba(232,240,252,.45); }
+  .gauge .read .val { font-family: "IBM Plex Mono", monospace; font-weight: 500; font-size: clamp(20px, 2.6vw, 32px);
+    color: var(--accent); transition: color .6s ease; font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .gauge .read .cond { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: rgba(232,240,252,.55); margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .gauge .track { position: relative; width: 2px; height: 58vh; background: linear-gradient(180deg, rgba(255,255,255,.2), rgba(255,255,255,.06)); }
+  .gauge .track .mark { position: absolute; left: 50%; top: 0%; width: 11px; height: 11px; border-radius: 50%;
+    transform: translate(-50%, -50%); background: var(--accent); box-shadow: 0 0 14px var(--accent); transition: background .6s ease; }
+  .gauge .track .ticks { position: absolute; inset: 0; }
+  .gauge .track .ticks > span { position: absolute; left: 8px; font-family: "IBM Plex Mono", monospace;
+    font-size: 9px; letter-spacing: .12em; color: rgba(232,240,252,.35); white-space: nowrap; transform: translateY(-50%); }
+  @media (max-width: 720px){ .gauge .read .cond { display: none; } .gauge .track { height: 42vh; } }
+
+  .diag { position: fixed; left: 20px; bottom: 18px; z-index: 8; font-size: 10px; letter-spacing: .14em;
+    color: rgba(232,240,252,.4); text-transform: uppercase; }
+
+  .spacer { position: relative; }
+</style>
+</head>
+<body>
+
+<a class="back mono" href="../../index.html">← Showroom</a>
+
+<div class="loader">
+  <div style="display:grid;place-items:center;gap:4px">
+    <div class="label mono" style="font-size:11px;letter-spacing:.3em">DROP SEQUENCE</div>
+    <div class="bar"><i></i></div>
+  </div>
+</div>
+
+<div class="scrim" aria-hidden="true"></div>
+<div class="panels"></div>
+
+<div class="gauge" aria-hidden="true">
+  <div class="read">
+    <div class="cap mono">ALTITUDE</div>
+    <div class="val mono">400 KM</div>
+    <div class="cond mono">VACUUM · 7.66 KM/S</div>
+  </div>
+  <div class="track"><span class="ticks"></span><i class="mark"></i></div>
+</div>
+
+<div class="diag mono" aria-hidden="true">BACKDROPS · —</div>
+
+<div class="scroll-cue mono" aria-hidden="true">Scroll — 400 km to street level</div>
+<div class="spacer"></div>
+
+<script type="module">
+import {
+  THREE, gsap, ScrollTrigger, reducedMotion,
+  makeRenderer, makeComposer, makeGradePass, attachLifecycle,
+  smoothScroll, loop, onResize, loaderOverlay, clamp, mapClamp,
+} from '../../shared/lib.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+// ---------------------------------------------------------------- stations
+const STATIONS = [
+  { label: 'Drop Point', accent: '#8fb4e8', alt: 400000, cond: 'VACUUM · 7.66 KM/S',
+    data: [['ALTITUDE', '400 KM'], ['VELOCITY', '7.66 KM/S'], ['GRID', 'Meridian Sprawl']],
+    blurb: 'From up here the city is a circuit board pressed under cloud — a hundred million lights filed into a grid that never sleeps. Release is silent. The fall is not.' },
+  { label: 'Cloud Deck', accent: '#a9c4dd', alt: 12000, cond: 'THIN AIR · −56 °C',
+    data: [['ALTITUDE', '12 KM'], ['AIR', '−56 °C'], ['ABOVE DECK', '38 towers']],
+    blurb: 'The cloud sea has a shoreline. Thirty-eight towers break it, hulls black against the moonlit deck, each one taller than any mountain the old maps knew.' },
+  { label: 'Crown Line', accent: '#29e6ff', alt: 800, cond: 'BEACON LAYER · CROSSWIND',
+    data: [['ALTITUDE', '800 M'], ['BEACONS', 'Active'], ['TRAFFIC', 'Level 12']],
+    blurb: 'Between the crowns the air is claimed — beacon strobes, lane lights, the slow drift of freight. The city starts long before the ground does.' },
+  { label: 'The Canyon', accent: '#ff2e88', alt: 120, cond: 'SMOG CEILING · RAIN ONSET',
+    data: [['ALTITUDE', '120 M'], ['RAIN', 'Onset'], ['LIGHT', 'Borrowed neon']],
+    blurb: 'The walls close in and the sky becomes a rumour. Down here nothing has its own colour — every surface wears whatever the signs across the street are selling.' },
+  { label: 'Street', accent: '#ffb056', alt: 4, cond: 'STREET · RAIN 84%',
+    data: [['ALTITUDE', '4 M'], ['RAIN', '84%'], ['CURFEW', 'None']],
+    blurb: 'Four metres. Wet asphalt doubles the city, umbrellas shed the rain, steam picks up the pink of a noodle sign. Four hundred kilometres, and the fall ends in a puddle of light.' },
+];
+const N = STATIONS.length;
+
+// ---------------------------------------------------------------- scene
+const renderer = makeRenderer();
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x04050a);
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(0, 0, 0);
+
+const load = loaderOverlay();
+let loaded = 0;
+const TOTAL_ASSETS = N;
+function tickLoader() { loaded++; load.set(loaded / TOTAL_ASSETS); if (loaded >= TOTAL_ASSETS) load.done(); }
+
+// deterministic hash (placeholder painters + flicker)
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// ---------------------------------------------------------------- placeholder painters
+// Procedural stand-ins for the five Higgsfield Soul stills. Same file slots
+// (assets/apex/stage-N.jpg) — when a real still exists it wins, no code change.
+const PW = 1024, PH = 576;
+function canvasFor(fn, seed) {
+  const c = document.createElement('canvas'); c.width = PW; c.height = PH;
+  const g = c.getContext('2d');
+  fn(g, mulberry32(seed));
+  g.filter = 'none';
+  g.fillStyle = 'rgba(180,200,230,.4)';
+  g.font = '10px monospace'; g.textAlign = 'right';
+  g.fillText('PROCEDURAL PLACEHOLDER — SOUL STILL PENDING', PW - 10, PH - 10);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function grad(g, stops, x0, y0, x1, y1) {
+  const gr = g.createLinearGradient(x0, y0, x1, y1);
+  for (const [p, col] of stops) gr.addColorStop(p, col);
+  return gr;
+}
+function towersSil(g, rnd, yBase, hMin, hMax, wMin, wMax, color, winAlpha) {
+  for (let x = 0; x < PW;) {
+    const w = wMin + rnd() * (wMax - wMin);
+    const h = hMin + rnd() * (hMax - hMin);
+    g.fillStyle = color;
+    g.fillRect(x, yBase - h, w, h + (PH - yBase));
+    if (winAlpha > 0) {
+      for (let wy = yBase - h + 6; wy < yBase - 4; wy += 7) {
+        for (let wx = x + 3; wx < x + w - 3; wx += 6) {
+          if (rnd() < 0.16) {
+            g.fillStyle = rnd() < 0.7 ? `rgba(255,200,130,${winAlpha})` : `rgba(90,220,255,${winAlpha})`;
+            g.fillRect(wx, wy, 2, 3);
+          }
+        }
+      }
+    }
+    x += w + rnd() * 14;
+  }
+}
+const PAINTERS = [
+  (g, rnd) => { // stage 1 — orbit: grid glowing through cloud, earth limb
+    g.fillStyle = grad(g, [[0, '#020208'], [0.55, '#050a18'], [1, '#0a1428']], 0, 0, 0, PH); g.fillRect(0, 0, PW, PH);
+    for (let i = 0; i < 240; i++) { g.fillStyle = `rgba(255,255,255,${0.2 + rnd() * 0.6})`; g.fillRect(rnd() * PW, rnd() * PH * 0.45, 1, 1); }
+    g.filter = 'blur(12px)'; // sodium city-glow patches bleeding through the haze
+    for (let i = 0; i < 10; i++) {
+      const gx = PW / 2 + (rnd() - 0.5) * PW * 0.8, gy = PH * 0.74 + (rnd() - 0.5) * PH * 0.3;
+      const gr = g.createRadialGradient(gx, gy, 0, gx, gy, 60 + rnd() * 100);
+      gr.addColorStop(0, 'rgba(255,178,90,.5)'); gr.addColorStop(1, 'rgba(255,178,90,0)');
+      g.fillStyle = gr; g.beginPath(); g.arc(gx, gy, 160, 0, 7); g.fill();
+    }
+    g.filter = 'blur(1px)';
+    for (let i = 0; i < 2200; i++) { // city grid — warm clusters on faint streets
+      const cx = PW / 2 + (rnd() - 0.5) * PW * 0.94, cy = PH * 0.72 + (rnd() - 0.5) * PH * 0.36;
+      g.fillStyle = rnd() < 0.82 ? `rgba(255,196,120,${0.3 + rnd() * 0.6})` : `rgba(130,230,255,${0.25 + rnd() * 0.5})`;
+      g.fillRect(cx, cy, 1 + rnd() * 2.5, 1 + rnd());
+    }
+    g.filter = 'blur(10px)';
+    for (let i = 0; i < 8; i++) { g.fillStyle = 'rgba(160,180,210,.22)'; g.beginPath(); g.ellipse(rnd() * PW, PH * (0.55 + rnd() * 0.4), 90 + rnd() * 160, 22 + rnd() * 28, 0, 0, 7); g.fill(); }
+    g.filter = 'blur(5px)';
+    g.strokeStyle = 'rgba(130,190,255,.8)'; g.lineWidth = 10;
+    g.beginPath(); g.ellipse(PW / 2, PH * 2.05, PW * 1.15, PH * 1.52, 0, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
+  },
+  (g, rnd) => { // stage 2 — cloud sea, tower tips
+    g.fillStyle = grad(g, [[0, '#060b1a'], [0.5, '#16233c'], [1, '#31415e']], 0, 0, 0, PH); g.fillRect(0, 0, PW, PH);
+    for (let i = 0; i < 90; i++) { g.fillStyle = `rgba(255,255,255,${0.15 + rnd() * 0.4})`; g.fillRect(rnd() * PW, rnd() * PH * 0.3, 1, 1); }
+    g.filter = 'blur(10px)';
+    for (let band = 0; band < 4; band++) {
+      const y = PH * (0.55 + band * 0.13);
+      for (let i = 0; i < 26; i++) {
+        const l = 0.5 + band * 0.13 + rnd() * 0.12;
+        g.fillStyle = `rgba(${170 * l + 55},${185 * l + 60},${210 * l + 65},${0.65 + rnd() * 0.35})`;
+        g.beginPath(); g.ellipse(rnd() * PW, y + (rnd() - 0.5) * 26, 60 + rnd() * 130, 14 + rnd() * 22, 0, 0, 7); g.fill();
+      }
+    }
+    g.filter = 'blur(1px)';
+    for (let i = 0; i < 7; i++) { // tower hulls breaking the deck
+      const x = 60 + rnd() * (PW - 120), w = 16 + rnd() * 30, top = PH * (0.18 + rnd() * 0.3);
+      g.fillStyle = grad(g, [[0, '#0a0e18'], [1, '#1d2638']], 0, top, 0, PH * 0.68);
+      g.beginPath(); g.moveTo(x - w * 0.35, PH * 0.68); g.lineTo(x - w * 0.5, top + 14); g.lineTo(x, top); g.lineTo(x + w * 0.5, top + 14); g.lineTo(x + w * 0.35, PH * 0.68); g.fill();
+      g.fillStyle = 'rgba(255,60,60,.9)'; g.fillRect(x - 1, top - 3, 2, 2);
+    }
+  },
+  (g, rnd) => { // stage 3 — crown line vista
+    g.fillStyle = grad(g, [[0, '#101830'], [0.6, '#1c2745'], [1, '#2a2244']], 0, 0, 0, PH); g.fillRect(0, 0, PW, PH);
+    g.filter = 'blur(16px)'; // city glow floor lifting the horizon
+    g.fillStyle = 'rgba(255,46,136,.3)'; g.fillRect(0, PH * 0.62, PW, PH * 0.38);
+    g.fillStyle = 'rgba(41,230,255,.22)'; g.fillRect(0, PH * 0.8, PW, PH * 0.2);
+    g.fillStyle = 'rgba(255,176,86,.16)'; g.fillRect(PW * 0.2, PH * 0.55, PW * 0.6, PH * 0.2);
+    g.filter = 'blur(3px)'; towersSil(g, rnd, PH * 0.9, PH * 0.25, PH * 0.55, 26, 60, '#2a3252', 0.55);
+    g.filter = 'blur(1px)'; towersSil(g, rnd, PH * 1.0, PH * 0.35, PH * 0.7, 40, 90, '#151a2e', 0.8);
+    g.filter = 'blur(0px)';
+    for (let i = 0; i < 34; i++) { g.fillStyle = rnd() < 0.5 ? 'rgba(255,80,80,.95)' : 'rgba(100,225,255,.9)'; g.fillRect(rnd() * PW, PH * (0.1 + rnd() * 0.42), 2, 2); }
+    g.filter = 'blur(10px)';
+    g.fillStyle = 'rgba(200,215,240,.1)'; g.fillRect(0, PH * 0.4, PW, PH * 0.18);
+  },
+  (g, rnd) => { // stage 4 — canyon walls, neon slot
+    g.fillStyle = grad(g, [[0, '#151226'], [1, '#241832']], 0, 0, 0, PH); g.fillRect(0, 0, PW, PH);
+    g.filter = 'blur(18px)';
+    g.fillStyle = grad(g, [[0, 'rgba(255,46,136,.1)'], [0.55, 'rgba(255,46,136,.7)'], [1, 'rgba(41,230,255,.75)']], 0, 0, 0, PH);
+    g.fillRect(PW * 0.34, 0, PW * 0.32, PH);
+    g.filter = 'blur(0px)';
+    for (const side of [-1, 1]) { // converging mega-walls with window grids
+      for (let d = 0; d < 5; d++) {
+        const inset = d * 0.055;
+        const wallW = PW * (0.38 - inset);
+        const x = side < 0 ? 0 : PW - wallW;
+        g.fillStyle = `rgba(${16 + d * 9},${14 + d * 8},${30 + d * 12},${1 - d * 0.12})`;
+        g.fillRect(x, 0, wallW, PH);
+        for (let wy = 8; wy < PH; wy += 10) {
+          for (let wx = x + 6; wx < x + wallW - 6; wx += 9) {
+            if (rnd() < 0.13) { g.fillStyle = rnd() < 0.5 ? 'rgba(255,190,130,.85)' : 'rgba(130,225,255,.75)'; g.fillRect(wx, wy, 3, 4); }
+          }
+        }
+      }
+    }
+    g.filter = 'blur(8px)';
+    for (let i = 0; i < 6; i++) { g.fillStyle = `rgba(235,240,255,.1)`; g.beginPath(); g.ellipse(PW / 2 + (rnd() - 0.5) * 200, rnd() * PH, 120, 26, 0, 0, 7); g.fill(); }
+  },
+  (g, rnd) => { // stage 5 — street level neon hero
+    g.fillStyle = grad(g, [[0, '#0b0914'], [0.45, '#1f1830'], [1, '#2e1c3e']], 0, 0, 0, PH); g.fillRect(0, 0, PW, PH);
+    towersSil(g, rnd, PH * 0.62, PH * 0.3, PH * 0.55, 50, 110, '#120e1e', 0.6);
+    g.filter = 'blur(6px)';
+    const SIGNS = [['255,46,136', 0.9], ['41,230,255', 0.8], ['255,176,86', 0.7], ['255,46,136', 0.6]];
+    const signXs = [];
+    for (let i = 0; i < 9; i++) {
+      const [col, a] = SIGNS[Math.floor(rnd() * SIGNS.length)];
+      const x = 40 + rnd() * (PW - 80), y = PH * (0.3 + rnd() * 0.28), w = 26 + rnd() * 90, h = 10 + rnd() * 26;
+      g.fillStyle = `rgba(${col},${a * 0.8})`; g.fillRect(x, y, w, h); signXs.push([x, w, col, a, y + h]);
+    }
+    g.filter = 'blur(2px)'; // wet asphalt: mirror smear of each sign
+    for (const [x, w, col, a] of signXs) {
+      g.fillStyle = grad(g, [[0, `rgba(${col},${a * 0.5})`], [1, `rgba(${col},0)`]], 0, PH * 0.66, 0, PH);
+      g.fillRect(x + (rnd() - 0.5) * 8, PH * 0.66, w, PH * 0.34);
+    }
+    g.filter = 'blur(0px)'; // crowd silhouettes + umbrellas
+    for (let i = 0; i < 42; i++) {
+      const x = rnd() * PW, h = 26 + rnd() * 18, y = PH * 0.66 - h;
+      g.fillStyle = 'rgba(4,3,8,.96)';
+      g.fillRect(x - 3, y + 8, 7, h - 8);
+      g.beginPath(); g.ellipse(x, y + 8, 9 + rnd() * 4, 5, 0, Math.PI, 0); g.fill();
+    }
+    g.filter = 'blur(10px)';
+    for (let i = 0; i < 6; i++) { g.fillStyle = 'rgba(220,230,245,.08)'; g.beginPath(); g.ellipse(rnd() * PW, PH * (0.6 + rnd() * 0.3), 60, 20, 0, 0, 7); g.fill(); }
+  },
+];
+
+// ---------------------------------------------------------------- backdrops (real still wins, placeholder falls back)
+const texLoader = new THREE.TextureLoader();
+const BACK_W = 150, BACK_H = 84, BACK_Z = -60;
+const backdrops = [];
+let realStills = 0;
+const diag = document.querySelector('.diag');
+for (let i = 0; i < N; i++) {
+  // toneMapped:false — the backdrops are authored/generated in display sRGB; running them
+  // through ACES crushes the placeholder painters' dark palette to near-black.
+  const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(BACK_W, BACK_H), mat);
+  mesh.position.set(0, 0, BACK_Z);
+  mesh.renderOrder = -10;
+  scene.add(mesh);
+  backdrops.push(mesh);
+}
+// The manifest says which Soul stills exist — blind per-file requests would log 404
+// console errors (a hard quality-gate violation) even when handled in JS.
+fetch('../../assets/apex/manifest.json')
+  .then((r) => (r.ok ? r.json() : { stills: [] }))
+  .catch(() => ({ stills: [] }))
+  .then((manifest) => {
+    const have = new Set(manifest.stills || []);
+    backdrops.forEach((mesh, i) => {
+      const file = `stage-${i + 1}.jpg`;
+      if (have.has(file)) {
+        texLoader.loadAsync(`../../assets/apex/${file}`).then((t) => {
+          t.colorSpace = THREE.SRGBColorSpace;
+          mesh.material.map = t; mesh.material.needsUpdate = true; realStills++; updateDiag(); tickLoader();
+        }).catch(() => {
+          mesh.material.map = canvasFor(PAINTERS[i], 100 + i); mesh.material.needsUpdate = true; updateDiag(); tickLoader();
+        });
+      } else {
+        mesh.material.map = canvasFor(PAINTERS[i], 100 + i); mesh.material.needsUpdate = true; updateDiag(); tickLoader();
+      }
+    });
+  });
+function updateDiag() {
+  diag.textContent = realStills === N ? 'BACKDROPS · SOUL ×5' :
+    `BACKDROPS · ${realStills}/5 SOUL — ${N - realStills} PROCEDURAL PLACEHOLDER`;
+}
+
+// ---------------------------------------------------------------- stars (stage 1 only)
+const starGeo = new THREE.BufferGeometry();
+{
+  const rnd = mulberry32(7);
+  const pos = new Float32Array(700 * 3);
+  for (let i = 0; i < 700; i++) {
+    pos[i * 3] = (rnd() - 0.5) * 130; pos[i * 3 + 1] = (rnd() - 0.5) * 80; pos[i * 3 + 2] = -55 - rnd() * 4;
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+}
+const starMat = new THREE.PointsMaterial({ color: 0xdfe8ff, size: 0.16, sizeAttenuation: true, transparent: true, opacity: 0.9, depthWrite: false });
+const stars = new THREE.Points(starGeo, starMat);
+scene.add(stars);
+
+// ---------------------------------------------------------------- soft cloud texture (shared by ambient + whiteout)
+function cloudTexture(seed) {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d'); const rnd = mulberry32(seed);
+  for (let i = 0; i < 26; i++) {
+    const x = 40 + rnd() * 176, y = 40 + rnd() * 176, r = 24 + rnd() * 60;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, `rgba(255,255,255,${0.10 + rnd() * 0.12})`);
+    gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const cloudTex = cloudTexture(11);
+
+// ambient cloud field — lives around the stage-2 window
+const ambClouds = new THREE.Group();
+{
+  const rnd = mulberry32(23);
+  for (let i = 0; i < 22; i++) {
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(30 + rnd() * 40, 14 + rnd() * 18),
+      new THREE.MeshBasicMaterial({ map: cloudTex, transparent: true, opacity: 0, depthWrite: false, color: 0xbfcee0 }),
+    );
+    m.position.set((rnd() - 0.5) * 110, (rnd() - 0.5) * 46, -24 - rnd() * 26);
+    m.userData = { speed: 0.2 + rnd() * 0.5, alpha: 0.25 + rnd() * 0.4 };
+    ambClouds.add(m);
+  }
+}
+scene.add(ambClouds);
+
+// whiteout transition planes — sweep up past the lens at each stage boundary
+const BOUNDS = [0.125, 0.375, 0.625, 0.875];
+const BOUND_TINT = [0xf2f6ff, 0xc8d2e2, 0x9aa2bb, 0x554a5e];
+const whiteout = new THREE.Group();
+{
+  const rnd = mulberry32(41);
+  for (let i = 0; i < 18; i++) {
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(26 + rnd() * 22, 14 + rnd() * 12),
+      new THREE.MeshBasicMaterial({ map: cloudTex, transparent: true, opacity: 0, depthWrite: false }),
+    );
+    m.position.set((rnd() - 0.5) * 30, 0, -6 - rnd() * 9);
+    m.userData = { phase: rnd(), alpha: 0.55 + rnd() * 0.45, x: m.position.x };
+    whiteout.add(m);
+  }
+}
+scene.add(whiteout);
+
+// ---------------------------------------------------------------- towers (stages 3 + 4) — parallax silhouettes
+function towerMaterial() {
+  return new THREE.ShaderMaterial({
+    transparent: true, depthWrite: true,
+    uniforms: { uOpacity: { value: 0 } },
+    // NOTE: ShaderMaterial does NOT auto-apply instanceMatrix — multiply it in manually
+    // (02-cyberpunk-alley learned this the hard way).
+    vertexShader: `varying vec3 vW; varying vec2 vUv; varying vec3 vN;
+      void main(){
+        vUv = uv;
+        vec4 local = instanceMatrix * vec4(position, 1.0);
+        vN = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
+        vec4 w = modelMatrix * local;
+        vW = w.xyz;
+        gl_Position = projectionMatrix * viewMatrix * w;
+      }`,
+    fragmentShader: `uniform float uOpacity; varying vec3 vW; varying vec2 vUv; varying vec3 vN;
+      float hash(vec2 p){ return fract(sin(dot(p,vec2(41.3,289.1)))*43758.5453); }
+      void main(){
+        vec3 base = vec3(0.030, 0.030, 0.052);
+        vec2 cell = floor(vec2(vUv.x * 10.0, vW.y * 1.3));
+        vec2 cuv = fract(vec2(vUv.x * 10.0, vW.y * 1.3));
+        float lit = step(0.9, hash(cell + floor(vW.x)));
+        float pane = step(0.2, cuv.x) * step(cuv.x, 0.8) * step(0.25, cuv.y) * step(cuv.y, 0.75);
+        vec3 win = hash(cell + 7.0) < 0.6 ? vec3(1.0, 0.74, 0.45) : vec3(0.35, 0.88, 1.0);
+        vec3 V = normalize(cameraPosition - vW);
+        float fres = pow(1.0 - clamp(dot(normalize(vN), V), 0.0, 1.0), 2.2);
+        vec3 col = base + fres * vec3(0.5, 0.25, 0.45) * 0.12 + lit * pane * win * 0.5;
+        gl_FragColor = vec4(col, uOpacity);
+      }`,
+  });
+}
+function towerField(seed, xMin, xMax, zMin, zMax, hMin, hMax, count) {
+  const rnd = mulberry32(seed);
+  const mat = towerMaterial();
+  const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mat, count);
+  const m = new THREE.Matrix4();
+  for (let i = 0; i < count; i++) {
+    const side = i % 2 === 0 ? -1 : 1;
+    const x = side * (xMin + rnd() * (xMax - xMin));
+    const z = -(zMin + rnd() * (zMax - zMin));
+    const h = hMin + rnd() * (hMax - hMin);
+    const w = 3 + rnd() * 5;
+    m.makeScale(w, h, w);
+    m.setPosition(x, 0, z);
+    inst.setMatrixAt(i, m);
+  }
+  inst.instanceMatrix.needsUpdate = true;
+  const group = new THREE.Group();
+  group.add(inst);
+  scene.add(group);
+  return { group, mat, inst };
+}
+const towersFar = towerField(57, 16, 44, 22, 48, 26, 60, 22);
+const towersNear = towerField(83, 9, 26, 12, 34, 30, 72, 14);
+
+// ---------------------------------------------------------------- rain (stage 5) — 02's instanced streak pattern
+const RAIN_COUNT = 600;
+function rainStreakTexture() {
+  const c = document.createElement('canvas'); c.width = 8; c.height = 64;
+  const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 0, 64);
+  gr.addColorStop(0, 'rgba(190,225,255,0)');
+  gr.addColorStop(0.5, 'rgba(190,225,255,0.95)');
+  gr.addColorStop(1, 'rgba(190,225,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 8, 64);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const rainMat = new THREE.MeshBasicMaterial({
+  map: rainStreakTexture(), transparent: true, opacity: 0, depthWrite: false,
+  blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide,
+});
+const rain = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.03, 0.8), rainMat, RAIN_COUNT);
+const rainX = new Float32Array(RAIN_COUNT), rainZ = new Float32Array(RAIN_COUNT);
+const rainY0 = new Float32Array(RAIN_COUNT), rainSpeed = new Float32Array(RAIN_COUNT);
+{
+  const rnd = mulberry32(97);
+  for (let i = 0; i < RAIN_COUNT; i++) {
+    rainX[i] = (rnd() - 0.5) * 44;
+    rainZ[i] = -(4 + rnd() * 26); // dead zone near the lens — overlapping additive streaks blow out
+    rainY0[i] = rnd() * 18;
+    rainSpeed[i] = 14 + rnd() * 10;
+  }
+}
+scene.add(rain);
+const _rm = new THREE.Matrix4(), _rq = new THREE.Quaternion(), _rs = new THREE.Vector3(1, 1, 1), _rp = new THREE.Vector3();
+_rq.setFromEuler(new THREE.Euler(0.09, 0, 0));
+
+// street glow pool + neon flicker sprites (stage 5)
+const glowTex = (() => {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(128, 32, 4, 128, 32, 120);
+  gr.addColorStop(0, 'rgba(255,255,255,.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 256, 64);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+const streetGlow = new THREE.Mesh(
+  new THREE.PlaneGeometry(70, 16),
+  new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, color: 0xff2e88, toneMapped: false }),
+);
+streetGlow.position.set(0, -14, -38);
+scene.add(streetGlow);
+const neonSigns = [0xff2e88, 0x29e6ff, 0xffb056].map((col, i) => {
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(10, 3),
+    new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, color: col, toneMapped: false }),
+  );
+  m.position.set([-16, 14, -5][i], [2, 5, 8][i], -40 - i * 3);
+  scene.add(m);
+  return m;
+});
+
+// ---------------------------------------------------------------- post
+const composer = makeComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.55, 0.7, 0.82);
+composer.addPass(bloom);
+const grade = makeGradePass({ aberration: 0.0018, vignetteMin: 0.55, grain: 0.03 });
+composer.addPass(grade);
+attachLifecycle(renderer, scene, composer);
+
+// ---------------------------------------------------------------- scroll rig
+smoothScroll({ lerp: 0.08 });
+document.querySelector('.spacer').style.height = (N * 130) + 'vh';
+const state = { t: 0 };
+// scrub:true (not scrub:1) — Lenis already smooths user scroll, and the time-based
+// catch-up tween never settles within the screenshot harness's wait at software-render fps.
+ScrollTrigger.create({
+  trigger: '.spacer', start: 'top top', end: 'bottom bottom', scrub: true,
+  onUpdate: (self) => { state.t = self.progress; },
+});
+
+// ---------------------------------------------------------------- panels + gauge DOM
+const panelWrap = document.querySelector('.panels');
+STATIONS.forEach((s, i) => {
+  const el = document.createElement('article');
+  el.className = 'panel';
+  el.innerHTML =
+    `<div class="idx mono">${String(i).padStart(2, '0')} / ${String(N - 1).padStart(2, '0')} · ${s.label === 'Drop Point' ? 'RELEASE' : 'FALLING'}</div>
+     <h2 class="label display">${s.label}</h2>
+     <dl class="data">${s.data.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
+     <p class="blurb">${s.blurb}</p>`;
+  panelWrap.appendChild(el);
+});
+const panels = [...panelWrap.children];
+
+const ticksWrap = document.querySelector('.gauge .ticks');
+STATIONS.forEach((s, i) => {
+  const el = document.createElement('span');
+  el.style.top = (i / (N - 1)) * 100 + '%';
+  el.textContent = s.alt >= 1000 ? `${s.alt / 1000} KM` : `${s.alt} M`;
+  ticksWrap.appendChild(el);
+});
+const gVal = document.querySelector('.gauge .val');
+const gCond = document.querySelector('.gauge .cond');
+const gMark = document.querySelector('.gauge .mark');
+const root = document.documentElement;
+
+// piecewise log-interpolated altitude — matches the station keyframes exactly
+function altitudeAt(t) {
+  const seg = clamp(t, 0, 1) * (N - 1);
+  const i = Math.min(Math.floor(seg), N - 2);
+  const f = seg - i;
+  return Math.exp(THREE.MathUtils.lerp(Math.log(STATIONS[i].alt), Math.log(STATIONS[i + 1].alt), f));
+}
+const fmtAlt = (a) => a >= 10000 ? `${Math.round(a / 1000)} KM` : a >= 1000 ? `${(a / 1000).toFixed(1)} KM` : `${Math.max(4, Math.round(a))} M`;
+
+function updateUI(t) {
+  const seg = t * (N - 1);
+  panels.forEach((el, i) => {
+    const d = Math.abs(seg - i);
+    el.style.opacity = d > 0.42 ? 0 : (1 - d / 0.42).toFixed(3);
+  });
+  const active = Math.round(Math.min(seg, N - 1));
+  root.style.setProperty('--accent', STATIONS[active].accent);
+  gVal.textContent = fmtAlt(altitudeAt(t));
+  gCond.textContent = STATIONS[active].cond;
+  gMark.style.top = (t * 100).toFixed(1) + '%';
+}
+
+// ---------------------------------------------------------------- choreography
+function stageLocal(i, t) { return clamp((t - (i / (N - 1) - 0.125)) / 0.25, 0, 1); }
+function stageOpacity(i, t) {
+  const c = i / (N - 1);
+  const d = Math.abs(t - c);
+  const inner = 0.085, outer = 0.13;
+  return i === 0 && t < c ? 1 : i === N - 1 && t > c ? 1 : 1 - clamp((d - inner) / (outer - inner), 0, 1);
+}
+
+loop((elapsed, dt) => {
+  const t = state.t;
+  updateUI(t);
+
+  // backdrops: window opacity + slow push-in + upward drift (falling reads on a still)
+  for (let i = 0; i < N; i++) {
+    const local = stageLocal(i, t);
+    const mesh = backdrops[i];
+    mesh.material.opacity = stageOpacity(i, t);
+    mesh.visible = mesh.material.opacity > 0.001;
+    const zoom = 1 + local * 0.24;
+    mesh.scale.set(zoom, zoom, 1);
+    mesh.position.y = -4 + local * 9;
+  }
+
+  // stars fade out through the first stage
+  starMat.opacity = mapClamp(t, 0.16, 0.3, 0.9, 0);
+  stars.visible = starMat.opacity > 0.001;
+  stars.rotation.z = reducedMotion ? 0 : elapsed * 0.004;
+
+  // ambient cloud field around stage 2
+  const amb = stageOpacity(1, t);
+  ambClouds.visible = amb > 0.001;
+  for (const m of ambClouds.children) {
+    m.material.opacity = amb * m.userData.alpha;
+    if (!reducedMotion) {
+      m.position.x += m.userData.speed * dt;
+      if (m.position.x > 70) m.position.x = -70;
+    }
+  }
+
+  // whiteout sweep at stage boundaries — scroll-driven, so it also works under reduced motion
+  let w = 0, bi = 0;
+  for (let b = 0; b < BOUNDS.length; b++) {
+    const wb = 1 - clamp((Math.abs(t - BOUNDS[b]) - 0.018) / 0.05, 0, 1);
+    if (wb > w) { w = wb; bi = b; }
+  }
+  whiteout.visible = w > 0.001;
+  if (whiteout.visible) {
+    const tint = new THREE.Color(BOUND_TINT[bi]);
+    for (const m of whiteout.children) {
+      const sweep = ((m.userData.phase + t * 16) % 1);
+      m.position.y = THREE.MathUtils.lerp(-34, 36, sweep);
+      m.position.x = m.userData.x + (reducedMotion ? 0 : Math.sin(elapsed * 0.7 + m.userData.phase * 9) * 1.2);
+      m.material.opacity = w * m.userData.alpha;
+      m.material.color.copy(tint);
+    }
+  }
+
+  // towers rise past the camera through their stage windows
+  const far = stageOpacity(2, t), near = stageOpacity(3, t);
+  towersFar.mat.uniforms.uOpacity.value = far;
+  towersFar.group.visible = far > 0.001;
+  towersFar.group.position.y = THREE.MathUtils.lerp(-52, 44, stageLocal(2, t));
+  towersNear.mat.uniforms.uOpacity.value = near;
+  towersNear.group.visible = near > 0.001;
+  towersNear.group.position.y = THREE.MathUtils.lerp(-60, 52, stageLocal(3, t));
+
+  // street systems
+  const street = mapClamp(t, 0.76, 0.86, 0, 1);
+  rainMat.opacity = street * 0.4;
+  rain.visible = street > 0.001;
+  if (rain.visible) {
+    for (let i = 0; i < RAIN_COUNT; i++) {
+      let y = rainY0[i] - ((elapsed * rainSpeed[i]) % 18);
+      y = ((y % 18) + 18) % 18 - 9;
+      _rp.set(rainX[i], y, rainZ[i]);
+      _rm.compose(_rp, _rq, _rs);
+      rain.setMatrixAt(i, _rm);
+    }
+    rain.instanceMatrix.needsUpdate = true;
+  }
+  streetGlow.material.opacity = street * 0.42;
+  neonSigns.forEach((m, i) => {
+    const flick = reducedMotion ? 1 : (0.82 + 0.18 * Math.sin(elapsed * (7 + i * 3.1) + i * 12) * Math.sin(elapsed * 1.3 + i));
+    m.material.opacity = street * 0.5 * flick;
+  });
+
+  // camera: micro-sway + canyon turbulence (cosmetic — held still under reduced motion)
+  if (!reducedMotion) {
+    const turb = mapClamp(t, 0.6, 0.8, 0, 1) * (1 - street * 0.7);
+    camera.rotation.x = Math.sin(elapsed * 0.5) * 0.004 + Math.sin(elapsed * 11) * 0.0022 * turb;
+    camera.rotation.y = Math.sin(elapsed * 0.33) * 0.005 + Math.cos(elapsed * 9.3) * 0.0022 * turb;
+  }
+
+  grade.uniforms.uTime.value = elapsed;
+  composer.render();
+});
+
+onResize((w, h) => {
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+  composer.setSize(w, h);
+  bloom.setSize(w, h);
+});
+</script>
+</body>
+</html>
