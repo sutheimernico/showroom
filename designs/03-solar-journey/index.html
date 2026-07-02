@@ -201,16 +201,36 @@ const sun = new THREE.Mesh(
   new THREE.IcosahedronGeometry(BODIES[0].r, 32),
   new THREE.ShaderMaterial({
     uniforms: sunUniforms,
-    vertexShader: `varying vec3 vObj; void main(){ vObj=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-    fragmentShader: NOISE + `uniform float uTime; varying vec3 vObj;
+    vertexShader: `varying vec3 vObj; varying vec3 vW; varying vec3 vWN;
+      void main(){ vObj=position; vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz;
+        vWN=normalize(mat3(modelMatrix)*normal); gl_Position=projectionMatrix*viewMatrix*w; }`,
+    // Photosphere look: limb darkening (edge darker + redder than the centre, the single
+    // strongest "real sun" cue) over fine LOW-contrast granulation — the old two-octave
+    // high-contrast fbm read as big morphing lava-lamp blotches at full resolution.
+    fragmentShader: NOISE + `uniform float uTime; varying vec3 vObj; varying vec3 vW; varying vec3 vWN;
       void main(){
         vec3 p = normalize(vObj);
-        float h = fbm(p*3.0 + vec3(uTime*0.12)) * 0.6 + fbm(p*7.0 - vec3(uTime*0.08)) * 0.4;
-        vec3 cool = vec3(0.85,0.18,0.04), mid = vec3(1.0,0.55,0.13), hot = vec3(1.0,0.92,0.62);
-        vec3 col = mix(cool, mid, smoothstep(0.28,0.55,h));
-        col = mix(col, hot, smoothstep(0.6,0.85,h));
-        // 1.28 not 1.5 — overdriving R+G equally clips to a chartreuse rim once bloom kicks in
-        gl_FragColor = vec4(col*1.28, 1.0);
+        vec3 V = normalize(cameraPosition - vW);
+        float mu = clamp(dot(normalize(vWN), V), 0.0, 1.0);   // 1 centre → 0 limb
+        float limb = pow(mu, 0.5);
+        float gran = fbm(p*6.0 + vec3(uTime*0.04)) * 0.55
+                   + fbm(p*16.0 - vec3(uTime*0.025)) * 0.45;
+        // filtered-photograph look (SDO): saturated yellow-orange disc with visible
+        // granulation cells and sparse darker spots — NOT a clipped white disc; the
+        // "glow" is bloom's job, so the surface itself must stay below clipping.
+        float spots = smoothstep(0.34, 0.2, fbm(p*3.5 + vec3(7.31)));
+        vec3 edge = vec3(0.85, 0.25, 0.05);
+        vec3 mid  = vec3(1.0, 0.62, 0.20);
+        vec3 core = vec3(1.0, 0.82, 0.45);
+        vec3 col = mix(edge, mid, limb);
+        col = mix(col, core, limb*limb);
+        col *= 0.72 + gran * 0.42;                            // visible cell structure
+        col *= 1.0 - spots * 0.45 * limb;                     // sunspots, centre only
+        // sweet spot between the two failure modes: 0.72 read as a matte beige ball,
+        // anything past ~1.0 + full bloom clipped the centre to a flat white disc.
+        // Peak ≈ 1.0 → ACES renders a hot yellow centre that keeps its granulation,
+        // and only the top granules cross the 0.8 bloom threshold.
+        gl_FragColor = vec4(col * 0.88, 1.0);
       }`,
   })
 );
@@ -224,10 +244,30 @@ const corona = new THREE.Mesh(
     vertexShader: `varying vec3 vN; varying vec3 vW; void main(){ vN=normalize(mat3(modelMatrix)*normal); vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; gl_Position=projectionMatrix*viewMatrix*w; }`,
     fragmentShader: `varying vec3 vN; varying vec3 vW;
       void main(){ vec3 v=normalize(cameraPosition-vW); float f=pow(1.0-abs(dot(vN,v)),1.8);
-        gl_FragColor=vec4(vec3(1.0,0.55,0.18)*f, f); }`,
+        vec3 col = mix(vec3(0.9,0.3,0.08), vec3(1.0,0.6,0.2), f);  // redder outer falloff
+        gl_FragColor=vec4(col*f, f*0.85); }`,
   })
 );
 sun.add(corona);
+// the "hot" centre is an additive glow sprite OVER the disc, not overdriven surface RGB —
+// pushing the shader past 1.0 clips to a flat white disc, while a soft radial glow keeps
+// the granulation visible underneath (standard WebGL-sun trick)
+const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const g = c.getContext('2d');
+    const gr = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+    gr.addColorStop(0, 'rgba(255,246,220,.9)');
+    gr.addColorStop(0.32, 'rgba(255,200,110,.42)');
+    gr.addColorStop(0.62, 'rgba(255,150,60,.12)');
+    gr.addColorStop(1, 'rgba(255,140,50,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  })(),
+  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, opacity: 1,
+}));
+sunGlow.scale.set(BODIES[0].r * 2.1, BODIES[0].r * 2.1, 1);
+sun.add(sunGlow);
 // lens flare — a cheap additive sprite sells the star as a light source; faded out
 // once the journey leaves the inner system (and frustum-culled behind the camera).
 const flareTex = (() => {
@@ -460,7 +500,7 @@ for (const b of BODIES) {
   // star cam at 3.0r with the corona at 1.7r: the straight lerp path to Mercury has to
   // clear the corona shell — at 2.7r/1.85r the camera clipped through it (full-screen
   // orange wash right after the Sol station)
-  if (b.type === 'star')      { pos = new THREE.Vector3(b.x - b.r * 0.4, b.r * 0.6, b.r * 3.0); aim = new THREE.Vector3(b.x + b.r * 0.4, 0, 0); }
+  if (b.type === 'star')      { pos = new THREE.Vector3(b.x - b.r * 0.4, b.r * 0.6, b.r * 3.4); aim = new THREE.Vector3(b.x + b.r * 0.4, 0, 0); }
   else if (b.type === 'hole') { pos = new THREE.Vector3(b.x - b.r * 0.3, b.r * 3.4, b.r * 7.6); aim = new THREE.Vector3(b.x, 0, 0); }
   else if (b.ring)            pos = new THREE.Vector3(b.x - b.r * 0.5, b.r * 1.5, b.r * 4.7);
   else if (b.type === 'gas')  pos = new THREE.Vector3(b.x - b.r * 0.7, b.r * 0.7, b.r * 3.4);
@@ -545,12 +585,20 @@ loop((elapsed, dt) => {
   _curAim.lerp(_aim, Math.min(1, ka * 1.3)); camera.lookAt(_curAim);
 
   sunUniforms.uTime.value = elapsed;
+  // tame bloom while the frame is dominated by the sun — full strength returns for the
+  // outer system and the black-hole finale, which live off it
+  bloom.strength = mapClamp(seg, 0.8, 2.0, 0.45, 0.7);
   diskUniforms.uTime.value = elapsed;
   disk.rotation.z = elapsed * 0.06;
   for (const p of planets) { p.body.rotation.y += dt * 0.06; }   // textures are static; just spin the bodies
   earthMat.uniforms.uTime.value = elapsed;
-  flare.material.opacity = mapClamp(seg, 1.5, 2.3, 0.9, 0);
+  // distance-shot effect only: at the Sol close-up the sprite sits right on the disc
+  // and repaints the centre as a white blob (+ its streak), so it must be gone by seg 1
+  flare.material.opacity = mapClamp(seg, 0.25, 0.95, 0.85, 0);
   flare.visible = flare.material.opacity > 0.01;
+  // centre glow stays through the Sol close-up, gone once the sun is behind us
+  sunGlow.material.opacity = mapClamp(seg, 1.6, 2.4, 1, 0);
+  sunGlow.visible = sunGlow.material.opacity > 0.01;
   orbitMat.opacity = mapClamp(seg, 0.9, 1.6, 0.14, 0);
   orbits.visible = orbitMat.opacity > 0.005;
   stars.rotation.y = elapsed * 0.003;

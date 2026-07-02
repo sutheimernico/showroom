@@ -286,3 +286,12 @@ User-requested concepts (2026-06-29): `21-earth-descent` (build now), `22-goal-s
   that fades points closer than 2.5–10 units. Lesson: static screenshots verify framing, not
   scroll *feel* — motion-path bugs (judder, path-through-geometry, near-lens particles) need an
   interactive check or an explicit path-clearance calculation.
+  **Sun rework after "die ist nicht so clean"**: the photosphere no longer relies on overdriven
+  RGB + bloom (which flip-flops between a clipped white disc and a matte beige ball — 6 parameter
+  iterations proved there is no sweet spot on that axis). Now: limb-darkened yellow-orange disc
+  with fine low-contrast granulation + sparse sunspots kept BELOW the bloom threshold, and the hot
+  centre comes from an additive radial glow sprite OVER the disc (the standard WebGL-sun trick) —
+  glows without clipping, granulation stays visible underneath. The lens-flare sprite is now
+  distance-only (faded out by seg 0.95): at the Sol close-up it sat right on the disc and
+  repainted the centre as a white pillow + streak. Bloom strength ramps 0.45→0.7 across the inner
+  system.
