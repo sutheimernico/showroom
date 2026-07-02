@@ -3,3 +3,9 @@ tools/shots/
 tools/deps/
 *.log
 .DS_Store
+
+# Secrets — never commit
+.env
+
+# Brainstorming visual-companion sessions (superpowers)
+.superpowers/
