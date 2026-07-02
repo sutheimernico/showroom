@@ -36,3 +36,5 @@ object-space normal, so the geometry's own UVs and seams are irrelevant.
 
 **Attribution string (also shown in the gallery footer):**
 > Planet & ring textures © Solar System Scope (solarsystemscope.com), CC BY 4.0.
+
+- `earth_night.jpg`, `earth_clouds.png` — copied from designs/21-earth-descent/textures/ (NASA Black Marble / cloud layer, public domain — see that folder's SOURCES.md for provenance).

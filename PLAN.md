@@ -253,3 +253,25 @@ User-requested concepts (2026-06-29): `21-earth-descent` (build now), `22-goal-s
   3200×2000 buffer pushed SwiftShader past the screenshot timeout under load average ~9). Poster =
   street stage. Note: PROJECT.md's `shared/stack.html` reference is stale — the file never existed;
   the de-facto skeleton is 02/21.
+- 2026-07-03 — **cinematic pass on `03-solar-journey`** (Nico's verdict on the placeholder-backed
+  apex: "nicht geil" → redirected the wow-budget to the solar system). Diagnosis from fresh shots:
+  the piece read as a lifeless bead chain — camera too far at every station, dead-black transits,
+  faint atmospheres, the Sun never staged as a light source, and the overview (the 5-second first
+  impression) weakest of all. Changes: (1) **camera direction** — every body now dominates ~2/3 of
+  frame height (rocky ~2.9r, gas 3.4r, Saturn 4.7r for ring clearance), aim offset right of the
+  panel, terminator running through frame; overview re-framed low and close with the Sun large on
+  the left. (2) **Earth is now the money shot**: NASA Black Marble city lights on the night side +
+  drifting cloud layer (textures reused from 21, provenance in SOURCES.md) + blue scatter rim.
+  Cloud density lives in the PNG's **alpha** channel (RGB is flat white) and must load as
+  NoColorSpace — sampling `.r`/sRGB rendered blocky tiles. (3) Sun: corona 1.35r→1.85r + lens-flare
+  sprite (faded out past seg 2.3, frustum-culled behind the camera later); surface emissive
+  1.5→1.28 with a warmer `hot` — equal R+G overdrive clipped to a chartreuse rim under bloom.
+  (4) Fall-feel: 1 500 additive dust points along the flight path give the transits parallax;
+  orbit rings anchor the overview as a *system* (faded before close-ups so they can't slice
+  through planets). (5) Atmosphere shells: brighter day limb, night limb damped
+  (`0.22+1.25*lit`) — a uniform halo read as a sticker ring. (6) Determinism fixes ported from 23:
+  `scrub:true`, no CSS panel transition, and a camera **snap on per-frame t-jumps >0.05**
+  (programmatic scrolls only) — `loop()`'s dt clamp caps the exp smoothing far below real time at
+  ~1fps, so harness shots used to capture the camera mid-flight between stations (the "tiny
+  planets" in the old shots were transits, not framing). Poster switched to the Earth frame
+  (pos 0.4). Zero console errors across sweeps.

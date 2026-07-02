@@ -9,7 +9,7 @@ const OUT = new URL('../assets/posters/', import.meta.url).pathname;
 const HIDE = '.panels,.panel,.back,.gauge,.scroll-cue,.scrim,.loader,.hud,.legend,.nav,.caption,.controls,.cta,.overlay-ui,.readout,.meta,.hours,.credit,.diag';
 const JOBS = [
   { slug: '01-house-walkthrough', pos: 0.05 },
-  { slug: '03-solar-journey',     pos: 0.7 },
+  { slug: '03-solar-journey',     pos: 0.4 },
   { slug: '21-earth-descent',     pos: 0.40 },
   { slug: '02-cyberpunk-alley',   pos: 0.30 },
   { slug: '08-particle-morph',    pos: 0.34 },
