@@ -217,7 +217,7 @@ const sun = new THREE.Mesh(
 scene.add(sun);
 // corona
 const corona = new THREE.Mesh(
-  new THREE.IcosahedronGeometry(BODIES[0].r * 1.85, 16),
+  new THREE.IcosahedronGeometry(BODIES[0].r * 1.7, 16),
   new THREE.ShaderMaterial({
     transparent: true, blending: THREE.AdditiveBlending, side: THREE.BackSide, depthWrite: false,
     uniforms: {},
@@ -378,9 +378,24 @@ const dust = (() => {
     pos[i * 3 + 2] = (Math.random() - 0.5) * 72;
   }
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const m = new THREE.PointsMaterial({
-    map: dot(), size: 0.55, transparent: true, opacity: 0.35, depthWrite: false,
-    blending: THREE.AdditiveBlending, color: 0x9fb4dd, sizeAttenuation: true,
+  // custom points shader: fade to zero near the lens — the camera flies through this
+  // band, and a grain crossing right in front of the camera reads as a bright blob glitch
+  const m = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uTex: { value: dot() } },
+    vertexShader: `varying float vFade;
+      void main(){
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        float d = -mv.z;
+        vFade = smoothstep(2.5, 10.0, d) * (1.0 - smoothstep(60.0, 140.0, d));
+        gl_PointSize = 42.0 / d;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `uniform sampler2D uTex; varying float vFade;
+      void main(){
+        vec4 t = texture2D(uTex, gl_PointCoord);
+        gl_FragColor = vec4(vec3(0.62,0.71,0.87), 1.0) * t * vFade * 0.35;
+      }`,
   });
   return new THREE.Points(g, m);
 })();
@@ -442,7 +457,10 @@ const stations = [];
 stations.push({ ...OVERVIEW, cam: { pos: new THREE.Vector3(-34, 22, 86), aim: new THREE.Vector3(110, -8, 0) } });
 for (const b of BODIES) {
   let pos, aim = new THREE.Vector3(b.x + b.r * 0.5, 0, 0);
-  if (b.type === 'star')      { pos = new THREE.Vector3(b.x - b.r * 0.6, b.r * 0.45, b.r * 2.7); aim = new THREE.Vector3(b.x + b.r * 0.4, 0, 0); }
+  // star cam at 3.0r with the corona at 1.7r: the straight lerp path to Mercury has to
+  // clear the corona shell — at 2.7r/1.85r the camera clipped through it (full-screen
+  // orange wash right after the Sol station)
+  if (b.type === 'star')      { pos = new THREE.Vector3(b.x - b.r * 0.4, b.r * 0.6, b.r * 3.0); aim = new THREE.Vector3(b.x + b.r * 0.4, 0, 0); }
   else if (b.type === 'hole') { pos = new THREE.Vector3(b.x - b.r * 0.3, b.r * 3.4, b.r * 7.6); aim = new THREE.Vector3(b.x, 0, 0); }
   else if (b.ring)            pos = new THREE.Vector3(b.x - b.r * 0.5, b.r * 1.5, b.r * 4.7);
   else if (b.type === 'gas')  pos = new THREE.Vector3(b.x - b.r * 0.7, b.r * 0.7, b.r * 3.4);
@@ -479,7 +497,7 @@ composer.addPass(grade);
 // ---------------------------------------------------------------- scroll state
 smoothScroll({ lerp: 0.07 });
 document.querySelector('.spacer').style.height = (stations.length * 100) + 'vh';
-const state = { t: 0 };
+const state = { t: 0, snap: false };
 // scrub:true — Lenis already smooths user scroll; scrub:1's time-based catch-up never
 // settles inside the screenshot harness's wait at software-render fps.
 ScrollTrigger.create({ trigger: '.spacer', start: 'top top', end: 'bottom bottom', scrub: true,
@@ -488,6 +506,11 @@ ScrollTrigger.create({ trigger: '.spacer', start: 'top top', end: 'bottom bottom
 const smoother = (x) => x * x * x * (x * (x * 6 - 15) + 10);
 const _pos = new THREE.Vector3(), _aim = new THREE.Vector3(), _curAim = new THREE.Vector3().copy(stations[0].cam.aim);
 camera.position.copy(stations[0].cam.pos);
+// programmatic jumps (screenshot harness) skip the cinematic camera lag; real scrolling never does
+if (window.__scrollTo) {
+  const origScrollTo = window.__scrollTo;
+  window.__scrollTo = (p) => { origScrollTo(p); state.snap = true; };
+}
 
 function updateUI(seg) {
   const active = Math.round(seg);
@@ -503,21 +526,20 @@ function updateUI(seg) {
 onResize((w, h) => { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); composer.setSize(w, h); bloom.setSize(w, h); });
 attachLifecycle(renderer, scene, composer);
 
-let prevT = 0;
 loop((elapsed, dt) => {
   const seg = state.t * (stations.length - 1);
   const i = Math.min(Math.floor(seg), stations.length - 2), f = smoother(seg - i);
   _pos.lerpVectors(stations[i].cam.pos, stations[i + 1].cam.pos, f);
   _aim.lerpVectors(stations[i].cam.aim, stations[i + 1].cam.aim, f);
   // frame-rate-independent smoothing: same settle time at 12fps (headless) or 60fps.
-  // A per-frame t jump this large only happens on programmatic scrolls (screenshot
-  // harness, anchor jumps) — snap instead of letting the lag show in captures; loop()'s
-  // dt clamp caps the exp() smoothing well below real time at ~1fps.
-  if (Math.abs(state.t - prevT) > 0.05) {
+  // Snap ONLY on explicit __scrollTo() calls (screenshot harness) — a t-delta heuristic
+  // also fired on fast real scrolling (scrollbar drags, hard flicks) and made the camera
+  // judder through stations.
+  if (state.snap) {
     camera.position.copy(_pos);
     _curAim.copy(_aim);
+    state.snap = false;
   }
-  prevT = state.t;
   const ka = 1 - Math.exp(-7.0 * dt);
   camera.position.lerp(_pos, ka);
   _curAim.lerp(_aim, Math.min(1, ka * 1.3)); camera.lookAt(_curAim);
