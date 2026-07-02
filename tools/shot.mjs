@@ -48,7 +48,10 @@ async function measureFPS(page, duration) {
     }
     requestAnimationFrame(frame);
   }), duration);
-  const settled = deltas.slice(3); // drop the first few frames (scroll-jump settle)
+  // drop up to the first 3 frames (scroll-jump settle) — but never so many that a render this
+  // slow (a handful of frames in the whole window) leaves nothing to compute stats from
+  const settled = deltas.slice(Math.min(3, Math.max(0, deltas.length - 1)));
+  if (settled.length === 0) return null; // too slow to sample even one full frame in the window
   const avgMs = settled.reduce((a, b) => a + b, 0) / settled.length;
   const sorted = [...settled].sort((a, b) => a - b);
   const p95Ms = sorted[Math.floor(sorted.length * 0.95)];
@@ -104,10 +107,14 @@ if (errors.length) {
 } else {
   console.log('OK — no console errors');
 }
-if (fps) {
-  console.log(
-    `FPS (SwiftShader software render — NOT GPU-representative, lower bound only): ` +
-    `avg=${fps.avgFps.toFixed(1)} low=${fps.lowFps.toFixed(1)} (n=${fps.frames} frames / ${FPS_MS}ms, scroll 0→1)`
-  );
+if (measureFps) {
+  if (fps) {
+    console.log(
+      `FPS (SwiftShader software render — NOT GPU-representative, lower bound only): ` +
+      `avg=${fps.avgFps.toFixed(1)} low=${fps.lowFps.toFixed(1)} (n=${fps.frames} frames / ${FPS_MS}ms, scroll 0→1)`
+    );
+  } else {
+    console.log(`FPS: could not sample a single frame in ${FPS_MS}ms — rendering is currently far below 1fps (host contention and/or this concept's cost under SwiftShader).`);
+  }
 }
 console.log('shots → ' + outDir);
