@@ -24,7 +24,7 @@ calibrate direction before the autonomous loop.
 | 05 | cathedral | Cathedral | reverent flight, light shafts · volumetric + dust | chiaroscuro | ☐ |
 | 06 | product-reveal | Product | object rotates & explodes · PBR + DOF | bright premium | ☐ |
 | 07 | exploded-gadget | Gadget | device bursts into parts · exploded-view | bright editorial | ☐ |
-| 08 | particle-morph | Particles | point cloud morphs shapes · attribute-lerp shader | dark neon | ☐ |
+| 08 | particle-morph | Particles | point cloud morphs shapes · WebGPU/TSL compute (auto WebGL2 fallback) | dark neon | ☑ |
 | 09 | raymarch-fractal | Fractal | endless SDF tunnel · fragment raymarching | psychedelic | ☐ |
 | 10 | glass-blob | Glass character | refractive blob reacts to mouse · refraction shader | clean dark | ☐ |
 | 11 | aurora-hero | Aurora | animated silk/aurora bg + type · noise gradient | editorial | ☐ |
@@ -183,3 +183,43 @@ User-requested concepts (2026-06-29): `21-earth-descent` (build now), `22-goal-s
     errors. Treat the low absolute numbers as a contended-machine artifact, not a piece-to-piece
     quality signal; re-run `SHOT_FPS_MS=5000 bash tools/shot.sh <url> <slug>` on a quiet machine
     for a trustworthy comparative baseline.
+- 2026-07-02 — **`08-particle-morph` ("Coherence") cleared the bar as the repo's first WebGPU/TSL
+  piece.** Up to 524,288 GPU-simulated particles ease from a noise cloud ("Dust") into an analytic
+  sphere, torus and double helix as you scroll, via `THREE.WebGPURenderer` + TSL compute
+  (`instancedArray`/`Fn`/`renderer.compute()`), a `THREE.RenderPipeline` post chain (bloom →
+  tonemap/colorspace → chromatic aberration → a hand-written TSL vignette/grain node matching
+  `shared/lib.js`'s `makeGradePass` look), and the repo's usual GSAP/Lenis scroll rig. Chakra
+  Petch/Fira Code pairing, violet→cyan particle gradient, a live HUD diagnostic honestly reporting
+  the active particle count and GPU backend. Three real bugs found during verification:
+  - `three.webgpu.js` (r185) is **not** a superset of `three.module.js` — it drops legacy
+    WebGL-only exports like `UniformsUtils`. Pointing this design's `"three"` import map entry at
+    the webgpu build broke `shared/lib.js`'s `EffectComposer`/`ShaderPass` imports outright
+    ("does not provide an export named 'UniformsUtils'"). Fixed by keeping `"three"` →
+    `three.module.js` (same as the other 3 designs) and adding `"three/webgpu"` as a separate
+    import map entry used only by this design's own renderer/material code; `shared/lib.js`'s
+    renderer-agnostic helpers (gsap/ScrollTrigger/scroll/loop/resize/loader/clamp) needed zero
+    changes and are reused unmodified.
+  - `chromaticAberration(node, strength, center, scale)`'s own JSDoc documents `center=null` as
+    "uses screen center (0.5, 0.5)", but the addon's own official three.js example never actually
+    exercises that path (it always passes an explicit `Vector2`) — passing `null` here threw
+    `THREE.TSL: TypeError: Cannot read properties of null (reading 'build')`. Fixed by passing
+    `new THREE.Vector2(0.5, 0.5)` explicitly; the documented default isn't safe in practice.
+  - Compute on the WebGL2 fallback is real (three's `WebGLBackend` emulates it via transform
+    feedback — confirmed by reading the source, not assumed) but under SwiftShader it's slow
+    enough that 524,288 particles made `shot.mjs`'s screenshot capture take minutes per frame.
+    Added a same-technique `isSoftwareRasterizer()` check (mirrors `makeComposer`'s guard) that
+    drops the count to 32,768 on a detected software rasterizer; real WebGPU or a real GPU-backed
+    WebGL2 fallback still gets the full 524,288. `tools/shot.mjs`'s own fps sampler hit a related
+    edge case here (see the `measureFPS` fix above) — even at 32,768 particles, this session's
+    combination of SwiftShader + heavy host contention pushed rendering to well under 1fps
+    (unmeasurable — fewer than one full frame in a 3.5s sample window).
+  **Honesty note per the task brief**: this sandbox's headless Chromium has no `navigator.gpu` —
+  `shot.mjs` only ever exercises the WebGL2 fallback path, confirmed live in the piece's own HUD
+  ("BACKEND · WebGL2 (fallback)"), never real WebGPU. The compute shader graph, `RenderPipeline`
+  TSL post-processing, and reduced-motion handling are shared code paths with the real-WebGPU
+  route — only backend *selection* is untestable here, not the rendering logic itself. Registered
+  in `index.html`'s live gallery and `tools/poster.mjs`.
+  **Not yet 10/10** — worth a follow-up pass: at this additive-sprite density the torus/helix
+  stations read more as a bright converging particle mass than a crisply legible ring/coil (panel
+  copy names the shape; the pure-visual read could still be sharper — lower density, a bigger
+  hole-to-body ratio, or replacing raw additive dots with a fresnel/surface-shaded look would help).
