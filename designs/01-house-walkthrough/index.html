@@ -560,9 +560,13 @@ applyDay(0);
 eye.getPointAt(0, camera.position);
 aim.getPointAt(0, _a); camera.lookAt(_a);
 
-loop((elapsed) => {
+loop((elapsed, dt) => {
   const t = state.t;
-  eye.getPointAt(t, _p); camera.position.lerp(_p, 0.12);
+  eye.getPointAt(t, _p);
+  // frame-rate-independent smoothing (same pattern as 03-solar-journey): settles the same
+  // whether the frame budget is 60fps or the ~12fps of headless/SwiftShader screenshot runs.
+  // k=7.7 matches the old fixed per-frame factor (0.12) at 60fps: 1-exp(-7.7/60)≈0.12.
+  camera.position.lerp(_p, 1 - Math.exp(-7.7 * dt));
   aim.getPointAt(t, _a);
   camera.lookAt(_a);
   applyDay(t);
