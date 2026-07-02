@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { gsap } from 'gsap';
 import ScrollTrigger from 'gsap/ScrollTrigger';
 import Lenis from 'lenis';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -22,6 +24,60 @@ export function makeRenderer(opts = {}) {
   el.classList.add('bg');
   document.body.appendChild(el);
   return renderer;
+}
+
+// True when the WebGL2 context is a software rasterizer (SwiftShader/llvmpipe), which is what
+// headless Chromium (our own shot.mjs harness) always runs on. Measured: a multisampled render
+// target that's cheap on real GPU hardware made even a trivial scene ~9x slower per frame under
+// SwiftShader, and hung the actual production designs' screenshot capture outright (composer
+// backlog never drains). Real GPUs resolve MSAA in dedicated hardware — this is a SwiftShader-only
+// escape hatch, not a general antialias toggle.
+function isSoftwareRenderer(renderer) {
+  const gl = renderer.getContext();
+  const ext = gl.getExtension('WEBGL_debug_renderer_info');
+  const info = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+  return /swiftshader|llvmpipe|software/i.test(info);
+}
+
+// EffectComposer with a real multisampled render target — `antialias:true` on the renderer
+// context is a no-op once a design routes through EffectComposer (its default render target
+// has no MSAA, see three's EffectComposer source). WebGL2 lets a WebGLRenderTarget itself carry
+// `samples`; the renderer resolves the multisampled buffer automatically when a later pass
+// samples the texture. Falls back to a plain (non-MSAA) target on WebGL1 or software rasterizers.
+export function makeComposer(renderer) {
+  const size = renderer.getSize(new THREE.Vector2());
+  const pixelRatio = renderer.getPixelRatio();
+  const samples = renderer.capabilities.isWebGL2 && !isSoftwareRenderer(renderer) ? 4 : 0;
+  const target = new THREE.WebGLRenderTarget(size.width * pixelRatio, size.height * pixelRatio, {
+    type: THREE.HalfFloatType,
+    samples,
+  });
+  return new EffectComposer(renderer, target);
+}
+
+// Shared chromatic-aberration / vignette / grain color-grade pass, extracted from the
+// near-identical `Grade` ShaderPass duplicated across 02/03/21. `heat` opts into 21's extra
+// warm-tint + heat-tightened vignette driven by a `uHeat` uniform (0 = off).
+export function makeGradePass({ aberration = 0.0015, vignetteMin = 0.6, grain = 0.025, heat = false } = {}) {
+  const uniforms = { tDiffuse: { value: null }, uTime: { value: 0 }, uAberr: { value: aberration } };
+  if (heat) uniforms.uHeat = { value: 0 };
+  const vignette = heat
+    ? `smoothstep(0.95, 0.16, r2*(2.0+uHeat*1.0))`
+    : `smoothstep(0.9, 0.2, r2*2.2)`;
+  const Grade = {
+    uniforms,
+    vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime, uAberr; ${heat ? 'uniform float uHeat;' : ''} varying vec2 vUv;
+      float rand(vec2 c){ return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453); }
+      void main(){ vec2 d=vUv-0.5; float r2=dot(d,d);
+        vec2 off=d*uAberr*(1.0+r2*3.0);
+        vec3 col; col.r=texture2D(tDiffuse,vUv+off).r; col.g=texture2D(tDiffuse,vUv).g; col.b=texture2D(tDiffuse,vUv-off).b;
+        ${heat ? 'col *= mix(vec3(1.0), vec3(1.1,0.93,0.8), uHeat);' : ''}
+        col *= mix(${vignetteMin.toFixed(2)}, 1.0, ${vignette});
+        col += (rand(vUv+uTime)-0.5)*${grain};
+        gl_FragColor=vec4(col,1.0); }`,
+  };
+  return new ShaderPass(Grade);
 }
 
 // Lenis smooth scroll wired into GSAP's single ticker. Exposes a deterministic

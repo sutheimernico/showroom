@@ -92,11 +92,9 @@
 <div class="spacer"></div>
 
 <script type="module">
-import { THREE, gsap, ScrollTrigger, makeRenderer, smoothScroll, loop, onResize, loaderOverlay, mapClamp } from '../../shared/lib.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { THREE, gsap, ScrollTrigger, makeRenderer, makeComposer, makeGradePass, smoothScroll, loop, onResize, loaderOverlay, mapClamp } from '../../shared/lib.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
 const loader = loaderOverlay();
 
@@ -379,23 +377,11 @@ const root = document.documentElement;
 const fmtKm = (km) => km < 0 ? '∞' : km === 0 ? '0 km' : km >= 1e9 ? (km / 1e9).toFixed(2) + 'B km' : (km / 1e6).toFixed(1) + 'M km';
 
 // ---------------------------------------------------------------- post
-const composer = new EffectComposer(renderer);
+const composer = makeComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.7, 0.6, 0.8);
 composer.addPass(bloom);
-const Grade = {
-  uniforms: { tDiffuse:{value:null}, uTime:{value:0}, uAberr:{value:0.0015} },
-  vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime, uAberr; varying vec2 vUv;
-    float rand(vec2 c){ return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453); }
-    void main(){ vec2 d=vUv-0.5; float r2=dot(d,d);
-      vec2 off=d*uAberr*(1.0+r2*3.0);
-      vec3 col; col.r=texture2D(tDiffuse,vUv+off).r; col.g=texture2D(tDiffuse,vUv).g; col.b=texture2D(tDiffuse,vUv-off).b;
-      col *= mix(0.6,1.0, smoothstep(0.9,0.2,r2*2.2));          // vignette
-      col += (rand(vUv+uTime)-0.5)*0.025;                        // grain
-      gl_FragColor=vec4(col,1.0); }`,
-};
-const grade = new ShaderPass(Grade);
+const grade = makeGradePass({ aberration: 0.0015, vignetteMin: 0.6, grain: 0.025 });
 composer.addPass(grade);
 
 // ---------------------------------------------------------------- scroll state

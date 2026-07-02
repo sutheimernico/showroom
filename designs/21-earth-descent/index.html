@@ -102,11 +102,9 @@
 <div class="spacer"></div>
 
 <script type="module">
-import { THREE, gsap, ScrollTrigger, reducedMotion, makeRenderer, smoothScroll, loop, onResize, loaderOverlay, clamp } from '../../shared/lib.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { THREE, gsap, ScrollTrigger, reducedMotion, makeRenderer, makeComposer, makeGradePass, smoothScroll, loop, onResize, loaderOverlay, clamp } from '../../shared/lib.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
 const loader = loaderOverlay();
 const motion = reducedMotion ? 0 : 1;
@@ -447,24 +445,12 @@ function camAt(t) {
 }
 
 // ---------------------------------------------------------------- post
-const composer = new EffectComposer(renderer);
+const composer = makeComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.35, 0.55, 0.8);
 composer.addPass(bloom);
-const Grade = {
-  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uHeat: { value: 0 }, uAberr: { value: 0.00012 } },
-  vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime, uHeat, uAberr; varying vec2 vUv;
-    float rand(vec2 c){ return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453); }
-    void main(){ vec2 d=vUv-0.5; float r2=dot(d,d);
-      vec2 off=d*uAberr*(1.0+r2*3.0);
-      vec3 col; col.r=texture2D(tDiffuse,vUv+off).r; col.g=texture2D(tDiffuse,vUv).g; col.b=texture2D(tDiffuse,vUv-off).b;
-      col *= mix(vec3(1.0), vec3(1.1,0.93,0.8), uHeat);                  // warm as we descend
-      col *= mix(0.6, 1.0, smoothstep(0.95, 0.16, r2*(2.0+uHeat*1.0)));   // vignette, tighter when hot
-      col += (rand(vUv+uTime)-0.5)*0.024;                                // grain
-      gl_FragColor=vec4(col,1.0); }`,
-};
-const grade = new ShaderPass(Grade); composer.addPass(grade);
+const grade = makeGradePass({ aberration: 0.00012, vignetteMin: 0.6, grain: 0.024, heat: true });
+composer.addPass(grade);
 
 // ---------------------------------------------------------------- scroll
 smoothScroll({ lerp: 0.075 });
