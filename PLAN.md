@@ -131,3 +131,55 @@ User-requested concepts (2026-06-29): `21-earth-descent` (build now), `22-goal-s
   `THREE.Points` sprites to additive-blended instanced streak planes). Added missing `prefers-reduced-motion`
   handling (PROJECT.md quality gate) — handheld camera sway now holds still under reduced motion. Removed
   dead code (`smoother`, unused since an earlier pass). `tools/poster.mjs` gained the `02` job.
+- 2026-07-02 — **quality pass** across all 4 live pieces (antialiasing, post-processing dedup,
+  frame-rate-independent camera, resource lifecycle, real fps measurement):
+  - *Real MSAA*: `antialias:true` on the renderer was inert — every design routes through
+    `EffectComposer`, whose default render target carries no multisampling (confirmed by reading
+    three r185's own `EffectComposer` source). `shared/lib.js` gained `makeComposer(renderer)`,
+    which hands the composer a `WebGLRenderTarget({ samples: 4, type: HalfFloatType })` on WebGL2 —
+    three's own documented recipe for composer MSAA. All 4 designs switched to it.
+    **Load-bearing caveat, found by actually measuring rather than assuming**: under SwiftShader
+    (the software GL rasterizer headless Chromium always uses, including this repo's own
+    `shot.mjs`), a multisampled render target is not just slower but pathological — a trivial
+    isolated test scene went from ~12ms/frame (samples:0) to ~105ms/frame (samples:4, 5 frames) and
+    to an outright non-terminating render queue at 60 continuous frames; on the real production
+    scenes it hung `page.screenshot()` outright (2-minute timeout, no error, no completion).
+    `makeComposer()` now detects software rasterizers via `WEBGL_debug_renderer_info` /
+    `UNMASKED_RENDERER_WEBGL` and falls back to `samples:0` there — real GPU hardware gets genuine
+    MSAA, this harness never does. **Consequence: no before/after AA screenshot diff could be
+    produced from this sandbox** — shot.mjs always takes the guarded (non-MSAA) branch here, and a
+    forced-on synthetic test showed SwiftShader's software rasterizer already smooths single-sample
+    edges at the pixel level (identical edge-pixel values with samples:0 vs samples:4 in a
+    controlled A/B), so there was nothing to diff even when forcing the MSAA path on. The fix is
+    verified correct by code path (WebGL2 + non-software → samples:4, confirmed via
+    `renderer.capabilities.isWebGL2` and the UA string check) and by the documented three.js
+    pattern, not by an eyeballed screenshot comparison.
+  - *Post-processing dedup*: the near-identical chromatic-aberration/vignette/grain `ShaderPass`
+    duplicated across `02`/`03`/`21` (each with slightly different `uAberr`/vignette-min/grain
+    constants, `21` additionally driving a heat-tint + heat-tightened vignette via `uHeat`) is now
+    one `makeGradePass({ aberration, vignetteMin, grain, heat })` factory in `shared/lib.js`. Each
+    design passes its existing tuned constants; the generated GLSL is byte-identical to what was
+    inlined before, so screenshots are unchanged (mod the AA guard above).
+  - *Frame-rate-independent camera lerp*: `01-house-walkthrough`'s `camera.position.lerp(_p, 0.12)`
+    applied the same fixed factor every frame regardless of `dt`, so — like the bug `03` already
+    documented and fixed — it settled slower in wall-clock time at low frame rates than at 60fps.
+    Switched to `1 - Math.exp(-7.7 * dt)` (k=7.7 chosen so behavior at 60fps is unchanged:
+    `1-exp(-7.7/60)≈0.12`), matching `03`'s established pattern.
+  - *Resource lifecycle*: PLAN.md's "no WebGL context loss" gate was aspirational — nothing
+    actually handled it. New `attachLifecycle(renderer, scene, composer)` in `shared/lib.js`:
+    disposes scene geometries/materials/textures + the composer/renderer on `pagehide`, calls
+    `preventDefault()` on `webglcontextlost` (without it the browser kills the context
+    permanently), and reloads the page on `webglcontextrestored`. Re-uploading every bespoke
+    scene's GPU state by hand isn't worth it for one-off showpieces, so recovery is "reload", not
+    in-place restore. Wired into all 4 designs.
+  - *Real fps measurement*: `tools/shot.mjs` gained `measureFPS()` — after the screenshot sweep it
+    samples real rAF-to-rAF deltas for ~3.5s while continuously driving `__scrollTo` across 0→1
+    (so the number includes scroll/ScrollTrigger/Lenis overhead, not just an idle frame), and
+    prints avg + a 5th-percentile-delta "low" fps. The console line explicitly says this is a
+    SwiftShader software-render number, not GPU-representative, and it should be read as a lower
+    bound / regression signal only. **Numbers from this session are further degraded by heavy host
+    contention** (`uptime` load average 15–30 on a 16-core box throughout, from unrelated
+    concurrent processes) — recorded avg fps ranged ~0.9–2.5 across the 4 pieces, all zero console
+    errors. Treat the low absolute numbers as a contended-machine artifact, not a piece-to-piece
+    quality signal; re-run `SHOT_FPS_MS=5000 bash tools/shot.sh <url> <slug>` on a quiet machine
+    for a trustworthy comparative baseline.
