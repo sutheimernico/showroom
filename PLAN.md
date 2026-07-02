@@ -275,3 +275,14 @@ User-requested concepts (2026-06-29): `21-earth-descent` (build now), `22-goal-s
   ~1fps, so harness shots used to capture the camera mid-flight between stations (the "tiny
   planets" in the old shots were transits, not framing). Poster switched to the Earth frame
   (pos 0.4). Zero console errors across sweeps.
+  **Correction after Nico tested on real hardware ("komplett verbuggt")** — three bugs static
+  SwiftShader shots could not show: (1) the camera snap was a t-delta heuristic (>0.05/frame) and
+  ALSO fired on fast real scrolling (scrollbar drags, hard flicks) → camera juddered through
+  stations; replaced by wrapping `window.__scrollTo` so only the harness's programmatic jumps
+  snap. (2) at cam 2.7r + corona 1.85r the straight lerp path Sol→Mercury clipped through the
+  corona shell (min path distance 25.1 < shell 25.9) → full-screen orange wash; now cam 3.0r +
+  corona 1.7r (clearance 27.3 vs 23.8). (3) the new dust points had no near-camera dead zone —
+  grains crossing the lens flashed as bright blobs; PointsMaterial replaced with a small shader
+  that fades points closer than 2.5–10 units. Lesson: static screenshots verify framing, not
+  scroll *feel* — motion-path bugs (judder, path-through-geometry, near-lens particles) need an
+  interactive check or an explicit path-clearance calculation.
