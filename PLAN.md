@@ -354,3 +354,13 @@ User-requested concepts (2026-06-29): `21-earth-descent` (build now), `22-goal-s
   tinted #b3c489, brighter foliage, glass with stronger env reflection); environmentIntensity
   0.4→0.55; vignette softened (0.55→0.74 floor) — a heavy vignette reads moody, not professional.
   Night lantern payoff unchanged. Poster re-rendered on the daylight open.
+  Max pass on top ("mach das zu einer 10/10"): full refurnish with RoundedBoxGeometry (hard box
+  corners are the #1 toy-model tell) — sofa with reclined cushions + rug, dining chairs with
+  backs, pendant cluster, kitchen island + counter, wall shelves with procedural books, framed
+  art, layered bed with pillows/duvet/nightstands; slim steel head/sill profiles on the glazing;
+  matte white fascia (a smooth one read as an LED strip — RoomEnvironment reflection);
+  stepping-stone path + clipped hedges; a daylight interior fill light that hands over to the
+  lamps at night; and 20k instanced wind-swayed grass blades (ShaderMaterial → manual
+  instanceMatrix; unlit shader needs a uNight dimmer or the lawn glows after dark; blade height
+  0.28 — 0.42 read as reeds, not lawn). Honest ceiling: low-poly trees + box architecture keep
+  this stylized-real, not photoreal.
