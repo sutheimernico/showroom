@@ -364,3 +364,12 @@ User-requested concepts (2026-06-29): `21-earth-descent` (build now), `22-goal-s
   instanceMatrix; unlit shader needs a uNight dimmer or the lawn glows after dark; blade height
   0.28 — 0.42 read as reeds, not lawn). Honest ceiling: low-poly trees + box architecture keep
   this stylized-real, not photoreal.
+  Tree + exposure wave (Nico: "die Bäume auch so unecht, achte auf die Belichtung"): the faceted
+  low-poly crowns are replaced by **Poly Haven's photoscanned island_tree_02** (CC0, gltf 1k,
+  ~46 MB in models/ — local repo, no remote, so the weight is acceptable; provenance in
+  models/SOURCES.md). GLTF leaf cards need alphaTest 0.5 + transparent:false + DoubleSide or the
+  canopy renders as glass slabs; instances are clones scaled to ~5–9 m via bounding-box height.
+  First placement swallowed the house — the scan's canopy is WIDE; trees now sit past the lawn
+  ring and frame instead. Exposure: soft shadow radius 5 (razor edges read CG), and a gentle
+  photographic grade in the vignette pass (saturation 1.12, contrast 1.05) so daylight doesn't
+  read milky. Higgsfield-AI pass for this piece still blocked on the empty API wallet.
