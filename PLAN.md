@@ -323,3 +323,12 @@ User-requested concepts (2026-06-29): `21-earth-descent` (build now), `22-goal-s
   single Saturn realism cue). (5) **Earth ocean sun-glint** via 21's earth_spec.jpg, masked by
   clouds. (6) **Milky Way sky sphere** (2k pano, dimmed 0x6e6e84) behind the point starfield.
   Zero console errors; poster re-rendered (Earth + Luna).
+  Second wave ("noch krasser"): (7) **asteroid belt fly-through** — 2 600 instanced rocks on a
+  ring R 127–143 that the camera path crosses at x≈135, so the Mars→Jupiter transit passes
+  THROUGH the belt (instanceMatrix applied manually in the ShaderMaterial, 02's lesson);
+  (8) **comet** on an eccentric inclined orbit with two physically-honest tails (dust curved
+  along negative velocity, ion straight anti-sunward, both point-size-clamped); (9) **gas giants
+  live** — gasFrag adds latitude-dependent zonal drift (bands shear against each other) + fbm
+  storm shimmer; (10) **solar prominences** (pulsing additive limb arcs, faded past seg 2.4)
+  and (11) Uranus' thin near-vertical ring; (12) Earth got a warm **sunset band along the
+  terminator**. Fix along the way: 03 had no mulberry32 (belt placement) — helper copied from 23.

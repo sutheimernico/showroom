@@ -108,6 +108,16 @@ float vnoise(vec3 x){ vec3 i=floor(x),f=fract(x); f=f*f*(3.0-2.0*f);
 float fbm(vec3 p){ float v=0.0,a=0.5; for(int i=0;i<5;i++){ v+=a*vnoise(p); p*=2.02; a*=0.5; } return v; }
 `;
 
+// deterministic PRNG for procedural placement (same helper as 23-apex-descent)
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 // ---------------------------------------------------------------- data
 const BODIES = [
   { key:'sun', label:'Sol', type:'star', r:14, x:0, accent:'#ff9d3c', realDist:0,
@@ -376,6 +386,9 @@ const earthFrag = `
     vec3 nightSide = texture2D(uNight, uv).rgb * vec3(1.35,1.15,0.85) * 1.7;
     nightSide *= 1.0 - cl * 0.6;                                // clouds occlude the city lights
     vec3 col = mix(nightSide, day * (0.25 + 0.85*d), term);
+    // sunset band along the terminator — thin warm rim where day rolls into night
+    float sunset = smoothstep(0.16, 0.02, abs(dot(wn, L)));
+    col += vec3(1.0, 0.42, 0.12) * sunset * 0.22 * (1.0 - cl * 0.5);
     vec3 V = normalize(cameraPosition - vW);
     // sun glint on open water — masked by the specular map and the cloud layer
     float sp = texture2D(uSpec, uv).r;
@@ -421,9 +434,35 @@ const moonFrag = NOISE + `
   }`;
 
 const moonPivots = [];
+// gas giants get living cloud bands: latitude-dependent zonal drift (adjacent bands
+// shear against each other, like the real jet streams) + a whisper of fbm warp
+const gasFrag = NOISE + `
+  uniform sampler2D uMap; uniform float uTime; varying vec3 vObj; varying vec3 vW; varying vec3 vWN;
+  const float INV_PI = 0.3183098862, INV_2PI = 0.1591549431;
+  void main(){
+    vec3 n = normalize(vObj);
+    vec3 wn = normalize(vWN);
+    vec3 L = normalize(-vW);
+    float d = clamp(dot(wn, L), 0.0, 1.0);
+    float term = smoothstep(-0.05, 0.35, dot(wn, L));
+    float nx = n.x + step(abs(n.x) + abs(n.z), 1e-6) * 1e-6;
+    vec2 uv = vec2(atan(n.z, nx) * INV_2PI + 0.5, asin(clamp(n.y,-1.0,1.0)) * INV_PI + 0.5);
+    uv.x += uTime * 0.0035 * cos(n.y * 9.0);                    // differential zonal drift
+    uv.x += (fbm(n * 6.0 + vec3(uTime * 0.01)) - 0.5) * 0.006;  // storm shimmer
+    vec3 col = texture2D(uMap, uv).rgb;
+    vec3 night = col * 0.03;
+    col = mix(night, col, term) * (0.30 + 0.70*d);
+    vec3 V = normalize(cameraPosition - vW);
+    float fres = pow(1.0 - clamp(dot(wn,V),0.0,1.0), 3.0);
+    col += col * fres * 0.45 * d;
+    gl_FragColor = vec4(col, 1.0);
+  }`;
+
+const gasMats = [];
 function makePlanet(cfg) {
   const g = new THREE.Group();
   const isEarth = cfg.key === 'earth';
+  const isGas = cfg.type === 'gas';
   const uniforms = { uMap:{ value: loadTex(MAPS[cfg.key] + '.jpg', true) } };
   if (isEarth) {
     uniforms.uNight = { value: loadTex('earth_night.jpg', true) };
@@ -431,10 +470,12 @@ function makePlanet(cfg) {
     uniforms.uSpec = { value: loadTex('earth_spec.jpg', false) };
     uniforms.uTime = { value: 0 };
   }
+  if (isGas) uniforms.uTime = { value: 0 };
   const mat = new THREE.ShaderMaterial({
     uniforms,
-    vertexShader: planetVert, fragmentShader: isEarth ? earthFrag : planetFrag,
+    vertexShader: planetVert, fragmentShader: isEarth ? earthFrag : isGas ? gasFrag : planetFrag,
   });
+  if (isGas) gasMats.push(mat);
   const body = new THREE.Mesh(new THREE.IcosahedronGeometry(cfg.r, 24), mat);
   g.add(body);
   const phys = PHYS[cfg.key] || {};
@@ -498,6 +539,15 @@ function makePlanet(cfg) {
     ring.rotation.x = Math.PI * 0.5 - 0.42;
     g.add(ring);
   }
+  if (cfg.key === 'uranus') {
+    // Uranus' thin dark ring system — near-vertical because the whole group lies on its side
+    const thin = new THREE.Mesh(
+      new THREE.RingGeometry(cfg.r * 1.55, cfg.r * 1.8, 120),
+      new THREE.MeshBasicMaterial({ color: 0x9fb8c8, transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    thin.rotation.x = Math.PI * 0.5;
+    g.add(thin);
+  }
   g.position.set(cfg.x, 0, 0);
   scene.add(g);
   return { group: g, body, mat, cfg };
@@ -557,6 +607,100 @@ for (const b of BODIES.filter(b => b.type !== 'star' && b.type !== 'hole')) {
   orbits.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), orbitMat));
 }
 scene.add(orbits);
+
+// asteroid belt between Mars (x=110) and Jupiter (x=158) — the ring crosses the camera
+// path around x≈135, so the Mars→Jupiter transit becomes a genuine belt fly-through
+const belt = (() => {
+  const rnd = mulberry32(77);
+  const count = 2600;
+  const mat = new THREE.ShaderMaterial({
+    // ShaderMaterial does NOT auto-apply instanceMatrix (02's lesson)
+    vertexShader: `varying vec3 vW; varying vec3 vN; varying float vShade;
+      void main(){
+        vec4 local = instanceMatrix * vec4(position, 1.0);
+        vN = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
+        vec4 w = modelMatrix * local; vW = w.xyz;
+        vShade = fract(instanceMatrix[3][0] * 0.37 + instanceMatrix[3][2] * 0.61);
+        gl_Position = projectionMatrix * viewMatrix * w;
+      }`,
+    fragmentShader: `varying vec3 vW; varying vec3 vN; varying float vShade;
+      void main(){
+        vec3 L = normalize(-vW);
+        float d = clamp(dot(normalize(vN), L), 0.0, 1.0);
+        vec3 col = mix(vec3(0.32,0.29,0.26), vec3(0.55,0.52,0.48), vShade);
+        gl_FragColor = vec4(col * (0.12 + 0.88 * d), 1.0);
+      }`,
+  });
+  const inst = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(0.16, 1), mat, count);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), s = new THREE.Vector3(), p = new THREE.Vector3();
+  for (let i = 0; i < count; i++) {
+    const R = 127 + rnd() * 16;
+    const th = rnd() * Math.PI * 2;
+    p.set(Math.cos(th) * R, (rnd() - 0.5) * 3.4, Math.sin(th) * R);
+    e.set(rnd() * 6.28, rnd() * 6.28, rnd() * 6.28); q.setFromEuler(e);
+    const sc = 0.35 + Math.pow(rnd(), 2.2) * 2.4;
+    s.set(sc, sc * (0.7 + rnd() * 0.6), sc);
+    m.compose(p, q, s);
+    inst.setMatrixAt(i, m);
+  }
+  inst.instanceMatrix.needsUpdate = true;
+  return inst;
+})();
+scene.add(belt);
+
+// comet — eccentric, inclined pass through the inner system; both tails point AWAY
+// from the Sun (the dust tail lags and bends, the ion tail runs straight and blue)
+const TAIL_N = 200;
+function makeTail(color, alpha) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TAIL_N * 3), 3));
+  const fade = new Float32Array(TAIL_N);
+  for (let i = 0; i < TAIL_N; i++) fade[i] = 1 - i / TAIL_N;
+  geo.setAttribute('aFade', new THREE.BufferAttribute(fade, 1));
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uTex: { value: dot() }, uColor: { value: new THREE.Color(color) }, uAlpha: { value: alpha } },
+    vertexShader: `attribute float aFade; varying float vF;
+      void main(){ vF = aFade; vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = clamp((3.0 + 24.0 * aFade) * (60.0 / max(-mv.z, 2.0)), 0.0, 40.0);
+        gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `uniform sampler2D uTex; uniform vec3 uColor; uniform float uAlpha; varying float vF;
+      void main(){ vec4 t = texture2D(uTex, gl_PointCoord); gl_FragColor = vec4(uColor, 1.0) * t * vF * uAlpha; }`,
+  });
+  return new THREE.Points(geo, mat);
+}
+const cometHead = new THREE.Mesh(new THREE.IcosahedronGeometry(0.32, 1), new THREE.MeshBasicMaterial({ color: 0xeaf2ff, toneMapped: false }));
+const tailDust = makeTail(0xffe8c0, 0.45);
+const tailIon = makeTail(0x8fc8ff, 0.35);
+scene.add(cometHead, tailDust, tailIon);
+const _cp = new THREE.Vector3(), _cv = new THREE.Vector3(), _sunDir = new THREE.Vector3(), _tp = new THREE.Vector3();
+function cometAt(tt, out) {
+  return out.set(Math.cos(tt) * 80 + 50, Math.sin(tt) * 13, Math.sin(tt) * 46);
+}
+
+// prominences — orange arcs licking over the solar limb, pulsing slowly
+const promTex = (() => {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 128;
+  const g = c.getContext('2d');
+  g.filter = 'blur(3px)';
+  const gr = g.createLinearGradient(0, 128, 0, 30);
+  gr.addColorStop(0, 'rgba(255,120,40,.9)'); gr.addColorStop(1, 'rgba(255,60,20,0)');
+  g.strokeStyle = gr; g.lineWidth = 13; g.lineCap = 'round';
+  g.beginPath(); g.arc(128, 128, 74, Math.PI * 1.05, Math.PI * 1.95); g.stroke();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+const prominences = new THREE.Group();
+[0.35, 2.3, 4.5].forEach((a, i) => {
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(7.5, 3.8),
+    new THREE.MeshBasicMaterial({ map: promTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, color: 0xff8a3a, opacity: 0, side: THREE.DoubleSide }),
+  );
+  m.position.set(Math.cos(a) * 14.3, Math.sin(a) * 14.3, 0);
+  m.rotation.z = a - Math.PI * 0.5;
+  m.userData.i = i;
+  prominences.add(m);
+});
+scene.add(prominences);
 
 // ---------------------------------------------------------------- black hole
 const holeCfg = BODIES.find(b => b.key === 'hole');
@@ -707,6 +851,38 @@ loop((elapsed, dt) => {
   disk.rotation.z = elapsed * 0.06;
   for (const p of planets) { p.body.rotation.y += dt * ((PHYS[p.cfg.key] || {}).spin ?? 0.05); }
   for (const pv of moonPivots) pv.rotation.y += dt * pv.userData.speed;
+  for (const gm of gasMats) gm.uniforms.uTime.value = elapsed;
+  belt.rotation.y = elapsed * 0.004;
+
+  // comet: advance along the orbit, rebuild both tails pointing away from the Sun
+  const ct = elapsed * 0.028;
+  cometAt(ct, _cp);
+  cometAt(ct + 0.02, _cv).sub(_cp).normalize();          // velocity direction
+  cometHead.position.copy(_cp);
+  _sunDir.copy(_cp).normalize();
+  const dustPos = tailDust.geometry.attributes.position;
+  const ionPos = tailIon.geometry.attributes.position;
+  for (let i = 0; i < TAIL_N; i++) {
+    const f = i / TAIL_N;
+    const jx = (Math.sin(i * 12.9898) * 43758.5453) % 1;
+    const jy = (Math.sin(i * 78.233) * 12543.2341) % 1;
+    // dust: pushed sunward-away but lagging along the (negative) velocity → curved
+    _tp.copy(_cp)
+      .addScaledVector(_sunDir, f * 26)
+      .addScaledVector(_cv, -f * f * 14)
+      .add({ x: jx * f * 2.2, y: jy * f * 2.2, z: (jx + jy) * f * 1.1 });
+    dustPos.setXYZ(i, _tp.x, _tp.y, _tp.z);
+    // ion: straight anti-sunward, tighter
+    _tp.copy(_cp).addScaledVector(_sunDir, f * 34).add({ x: jy * f * 0.9, y: jx * f * 0.9, z: jx * f * 0.5 });
+    ionPos.setXYZ(i, _tp.x, _tp.y, _tp.z);
+  }
+  dustPos.needsUpdate = true;
+  ionPos.needsUpdate = true;
+
+  const promOp = mapClamp(seg, 1.6, 2.4, 1, 0);
+  for (const pm of prominences.children) {
+    pm.material.opacity = promOp * (0.4 + 0.3 * Math.sin(elapsed * 0.35 + pm.userData.i * 2.1));
+  }
   earthMat.uniforms.uTime.value = elapsed;
   // distance-shot effect only: at the Sol close-up the sprite sits right on the disc
   // and repaints the centre as a white blob (+ its streak), so it must be gone by seg 1
