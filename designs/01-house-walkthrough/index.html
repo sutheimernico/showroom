@@ -173,6 +173,7 @@
 import { THREE, gsap, ScrollTrigger, makeRenderer, makeComposer, attachLifecycle, smoothScroll, loop, onResize, loaderOverlay, reducedMotion, mapClamp } from '../../shared/lib.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
@@ -435,54 +436,36 @@ function rbox(w, h, d, r, mat, x, y, z) {
   rbox(2.7, 0.5, 0.08, 0.03, M.wood, -3, 3.9, -3.98);                  // headboard
   for (const nx of [-4.6, -1.4]) rbox(0.5, 0.4, 0.4, 0.03, M.wood, nx, 3.68, -3.8);         // nightstands
 
-  // --- trees outside: organic displaced crowns with a baked volume gradient
-  // (dark underside → sun-lit top) + per-tree hue/shape variation, so they read
-  // as a small grove instead of faceted lollipops.
-  const cTop = new THREE.Color('#82944a'), cBot = new THREE.Color('#2c3a22');
-  // one lumpy, smooth-shaded, vertex-coloured crown — displacement is a sum of
-  // low-freq sines (deterministic, no facets); vertical gradient fakes AO + skylight.
-  const makeCrown = (radius, seed, hue) => {
-    const geo = new THREE.IcosahedronGeometry(radius, 4);   // detail 4 → smooth silhouette up close
-    const pos = geo.attributes.position, v = new THREE.Vector3();
-    const top = cTop.clone().offsetHSL(hue, 0, 0), bot = cBot.clone().offsetHSL(hue, 0, 0);
-    const colors = [];
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i);
-      const d = v.clone().normalize();
-      const disp = 1 + 0.13 * Math.sin(d.x * 5 + seed * 11) + 0.11 * Math.sin(d.y * 4 + seed * 23)
-                     + 0.10 * Math.sin(d.z * 6 + seed * 37);
-      v.multiplyScalar(disp);
-      pos.setXYZ(i, v.x, v.y, v.z);
-      const c = bot.clone().lerp(top, Math.pow((d.y + 1) / 2, 0.8));   // underside → top
-      colors.push(c.r, c.g, c.b);
+  // --- trees: a photoscanned CC0 model (Poly Haven island_tree_02) replaces the old
+  // faceted low-poly crowns — the single element that most betrayed "3D demo".
+  new GLTFLoader(manager).load('./models/island_tree_02/island_tree_02_1k.gltf', (gltf) => {
+    const proto = gltf.scene;
+    proto.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = true; o.receiveShadow = true;
+        // leaf cards: cutout alpha + double side, or the canopy renders as glass slabs
+        if (o.material && o.material.transparent) {
+          o.material.alphaTest = 0.5;
+          o.material.transparent = false;
+          o.material.side = THREE.DoubleSide;
+          o.material.depthWrite = true;
+        }
+      }
+    });
+    const bb = new THREE.Box3().setFromObject(proto);
+    const height = bb.max.y - bb.min.y;
+    // pushed out past the lawn ring — the scan has a WIDE canopy; at the old close-in
+    // positions it swallowed the house instead of framing it
+    for (const [tx, tz, s, seed] of [[-13, 10, 0.9, 0.17], [13, -9, 1.05, 0.61], [-15, -6, 0.8, 0.39],
+                                      [15, 7, 0.95, 0.83], [-18, 13, 0.7, 0.07], [18, -3, 0.85, 0.52]]) {
+      const t = proto.clone();
+      const k = (6.5 * s) / height;                       // target height ≈ 5–9 m
+      t.scale.set(k, k, k);
+      t.position.set(tx, -bb.min.y * k, tz);
+      t.rotation.y = seed * 6.28;
+      root.add(t);
     }
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    geo.computeVertexNormals();
-    return geo;
-  };
-  // [x, z, scale, seed] — seed drives the deterministic per-tree variation
-  for (const [tx, tz, s, seed] of [[-9, 7, 1.25, 0.17], [9, -7, 1.55, 0.61], [-11, -4, 1.0, 0.39],
-                                    [11, 5, 1.35, 0.83], [-13, 9, 0.9, 0.07], [13, -2, 1.15, 0.52]]) {
-    const t = new THREE.Group();
-    const hue = (seed - 0.5) * 0.06;                                  // subtle leaf-hue shift per tree
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08 * s, 0.22 * s, 2.0 * s, 9), M.trunk);
-    trunk.position.y = 1.0 * s; trunk.rotation.z = (seed - 0.5) * 0.18; // slight natural lean
-    trunk.castShadow = true; trunk.receiveShadow = true;
-    t.add(trunk);
-    // 5 overlapping lumps → one irregular canopy mass instead of 3 distinct balls
-    const blobs = [[0, 2.5, 0, 1.15], [0.6, 2.1, 0.25, 0.85], [-0.5, 2.25, -0.3, 0.8],
-                   [0.15, 3.0, -0.1, 0.7], [-0.25, 1.95, 0.45, 0.65]];
-    for (let bi = 0; bi < blobs.length; bi++) {
-      const [bx, by, bz, br] = blobs[bi];
-      const crown = new THREE.Mesh(makeCrown(br * s, seed + bi * 0.7, hue), M.foliage);
-      crown.position.set(bx * s, by * s, bz * s);
-      crown.castShadow = true; crown.receiveShadow = true;
-      t.add(crown);
-    }
-    t.position.set(tx, 0, tz);
-    t.rotation.y = seed * 6.28;
-    root.add(t);
-  }
+  });
 })();
 
 // ---------------------------------------------------------------- instanced grass
@@ -546,6 +529,7 @@ sun.shadow.camera.near = 1; sun.shadow.camera.far = 70;
 sun.shadow.camera.left = -20; sun.shadow.camera.right = 20;
 sun.shadow.camera.top = 20; sun.shadow.camera.bottom = -20;
 sun.shadow.bias = -0.0004;
+sun.shadow.radius = 5;         // soften — razor-sharp shadow edges read CG, not photo
 scene.add(sun, sun.target);
 
 const ambient = new THREE.HemisphereLight('#b89878', '#14110c', 0.35);
@@ -665,6 +649,11 @@ const VignetteGrain = {
     float rand(vec2 c){ return fract(sin(dot(c, vec2(12.9898,78.233))) * 43758.5453); }
     void main(){
       vec3 col = texture2D(tDiffuse, vUv).rgb;
+      // gentle photographic grade: a touch of saturation + contrast keeps daylight
+      // from reading flat/milky without pushing it into "filter" territory
+      float luma = dot(col, vec3(0.299, 0.587, 0.114));
+      col = mix(vec3(luma), col, 1.12);
+      col = (col - 0.5) * 1.05 + 0.5;
       vec2 d = vUv - 0.5;
       float vig = smoothstep(0.95, 0.25, dot(d, d) * uVig * 2.2);
       col *= mix(0.74, 1.0, vig);   // gentle — a heavy vignette reads moody, not professional
