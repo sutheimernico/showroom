@@ -172,6 +172,7 @@
 <script type="module">
 import { THREE, gsap, ScrollTrigger, makeRenderer, makeComposer, attachLifecycle, smoothScroll, loop, onResize, loaderOverlay, reducedMotion, mapClamp } from '../../shared/lib.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
@@ -286,7 +287,10 @@ const M = {
   floor: new THREE.MeshStandardMaterial({ ...pbr('wood_floor_deck', 4, 3.3), roughness: 1, metalness: 0, emissive: '#ffa050', emissiveIntensity: 0 }),
   darkFloor: new THREE.MeshStandardMaterial({ color: '#5e4a36', roughness: 0.5, metalness: 0 }),
   wood: new THREE.MeshStandardMaterial({ color: '#8a5a36', roughness: 0.6, metalness: 0 }),
-  fabric: new THREE.MeshStandardMaterial({ color: '#b9b2a4', roughness: 0.95, metalness: 0 }),
+  fabric: new THREE.MeshStandardMaterial({ color: '#d3ccbd', roughness: 0.95, metalness: 0 }),
+  rug: new THREE.MeshStandardMaterial({ color: '#c9c2b2', roughness: 1, metalness: 0 }),
+  trim: new THREE.MeshStandardMaterial({ color: '#f2eee4', roughness: 0.6, metalness: 0 }),
+  counter: new THREE.MeshStandardMaterial({ color: '#e8e4da', roughness: 0.3, metalness: 0 }),
   metal: new THREE.MeshStandardMaterial({ color: '#2a2723', roughness: 0.35, metalness: 0.9 }),
   glass: new THREE.MeshStandardMaterial({ color: '#b8ccd6', roughness: 0.05, metalness: 0, transparent: true, opacity: 0.12, envMapIntensity: 1.0, side: THREE.DoubleSide }),
   ground: new THREE.MeshStandardMaterial({ ...pbr('aerial_grass_rock', 7), color: '#b3c489', roughness: 1, metalness: 0 }),
@@ -302,6 +306,14 @@ function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
   m.position.set(x, y + h / 2, z);
   m.castShadow = cast; m.receiveShadow = receive;
+  root.add(m);
+  return m;
+}
+// soft-edged volume — hard box corners are the single biggest "toy model" tell on furniture
+function rbox(w, h, d, r, mat, x, y, z) {
+  const m = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 3, r), mat);
+  m.position.set(x, y + h / 2, z);
+  m.castShadow = true; m.receiveShadow = true;
   root.add(m);
   return m;
 }
@@ -326,9 +338,14 @@ function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
   // a couple of slender mullions standing in for the south/east glass plane
   for (let i = -1; i <= 1; i++) box(0.12, 3.4, 0.12, M.metal, i * 3, 0, 5);
   for (let i = -1; i <= 1; i++) box(0.12, 3.4, 0.12, M.metal, 6, 0, i * 2.6);
-  // glass planes (south + east)
+  // glass planes (south + east) with slim head/sill profiles — frames are what make
+  // glazing read as architecture instead of a ghost plane
   box(12.4, 3.4, 0.04, M.glass, 0, 0, 5, { cast: false });
   box(0.04, 3.4, 10, M.glass, 6, 0, 0, { cast: false });
+  box(12.5, 0.09, 0.09, M.metal, 0, 3.36, 5, { cast: false });
+  box(12.5, 0.09, 0.09, M.metal, 0, 0, 5, { cast: false });
+  box(0.09, 0.09, 10.1, M.metal, 6, 3.36, 0, { cast: false });
+  box(0.09, 0.09, 10.1, M.metal, 6, 0, 0, { cast: false });
 
   // first-floor slab over the north half → double-height living room to the south
   box(12, 0.25, 5, M.darkFloor, 0, 3.4, -2.5, { receive: true });
@@ -337,8 +354,17 @@ function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
   box(0.25, 3.0, 5, M.warmWall, -6, 3.65, -2.5);
   box(0.25, 3.0, 5, M.warmWall, 6, 3.65, -2.5);
   box(12.4, 3.0, 0.04, M.glass, 0, 3.65, 0, { cast: false });     // upper glass facing the void/south
-  // roof with overhang
+  // roof with overhang + a crisp white fascia band (the modernist edge line).
+  // Matte + env-damped: with the bright RoomEnvironment reflected in it, a smooth
+  // white band read as a glowing LED strip, especially at night.
+  const fascia = new THREE.MeshStandardMaterial({ color: '#ddd8ca', roughness: 0.9, metalness: 0, envMapIntensity: 0.12 });
   box(13.6, 0.3, 12.5, M.concrete, 0, 6.65, -0.5);
+  box(13.7, 0.14, 12.6, fascia, 0, 6.92, -0.5, { cast: false });
+
+  // stepping-stone path from the terrace out to the lawn
+  for (let i = 0; i < 6; i++) box(1.0, 0.06, 0.7, M.concrete, 1.2 + i * 0.35, -0.02, 8.2 + i * 1.05, { cast: false });
+  // low clipped hedges flanking the terrace
+  for (const hx of [-7.6, 6.9]) rbox(2.6, 0.7, 0.8, 0.18, M.foliage, hx, 0, 7.2);
 
   // --- stair along the north wall (folded run of treads)
   const steps = 12;
@@ -346,21 +372,68 @@ function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
     box(1.4, 0.18, 0.42, M.wood, 3.2, 0.1 + i * 0.27, -3.4 - i * 0.0 + (i * 0.32) * 0 - 0 + (-2.2 + i * 0.32), { });
   }
 
-  // --- ground-floor furniture: living commons (south-west)
-  box(3.2, 0.5, 1.5, M.fabric, -3, 0.1, 2.6);      // sofa seat
-  box(3.2, 0.6, 0.4, M.fabric, -3, 0.6, 3.3);      // sofa back
-  box(0.4, 0.45, 1.5, M.fabric, -4.5, 0.1, 2.6);   // sofa arm
-  box(0.4, 0.45, 1.5, M.fabric, -1.5, 0.1, 2.6);   // sofa arm
-  box(1.6, 0.35, 0.9, M.wood, -3, 0.05, 1.1);      // coffee table
-  // dining (south-east)
-  box(2.4, 0.08, 1.0, M.wood, 3, 0.74, 2.4);       // dining top
-  for (const dx of [-1, 1]) for (const dz of [-0.38, 0.38]) box(0.08, 0.74, 0.08, M.metal, 3 + dx, 0, 2.4 + dz);
-  for (const dx of [-0.8, 0, 0.8]) { box(0.42, 0.46, 0.42, M.wood, 3 + dx, 0, 1.7); box(0.42, 0.46, 0.42, M.wood, 3 + dx, 0, 3.1); }
+  // --- ground-floor furniture: living commons (south-west), rounded volumes + layered
+  // cushions — furniture reads as designed objects, not stacked boxes
+  box(4.6, 0.03, 3.2, M.rug, -3, 0.12, 2.3, { cast: false });          // area rug
+  rbox(3.3, 0.34, 1.55, 0.07, M.fabric, -3, 0.16, 2.6);                // sofa base
+  for (const dx of [-1.02, 0, 1.02]) rbox(1.0, 0.2, 1.35, 0.07, M.fabric, -3 + dx, 0.5, 2.55);   // seat cushions
+  for (const dx of [-1.02, 0, 1.02]) {
+    const c = rbox(0.98, 0.55, 0.22, 0.08, M.fabric, -3 + dx, 0.62, 3.28);
+    c.rotation.x = -0.12;                                              // reclined back cushions
+  }
+  rbox(0.34, 0.62, 1.5, 0.09, M.fabric, -4.72, 0.16, 2.6);             // arms
+  rbox(0.34, 0.62, 1.5, 0.09, M.fabric, -1.28, 0.16, 2.6);
+  rbox(1.5, 0.09, 0.85, 0.04, M.wood, -3, 0.42, 1.1);                  // coffee table top
+  for (const [lx, lz] of [[-0.6, -0.32], [0.6, -0.32], [-0.6, 0.32], [0.6, 0.32]])
+    box(0.05, 0.42, 0.05, M.metal, -3 + lx, 0, 1.1 + lz);
+  rbox(0.5, 0.1, 0.36, 0.04, M.trim, -3.2, 0.52, 1.05);                // book stack on table
+
+  // dining (south-east): thin top, slender steel legs, real chairs with backs
+  rbox(2.5, 0.07, 1.05, 0.03, M.wood, 3, 0.72, 2.4);
+  for (const dx of [-1.05, 1.05]) for (const dz of [-0.4, 0.4]) box(0.06, 0.72, 0.06, M.metal, 3 + dx, 0, 2.4 + dz);
+  for (const dx of [-0.8, 0, 0.8]) for (const dz of [1.62, 3.18]) {
+    rbox(0.44, 0.06, 0.44, 0.03, M.wood, 3 + dx, 0.44, dz);            // seat
+    for (const [lx, lz] of [[-0.17, -0.17], [0.17, -0.17], [-0.17, 0.17], [0.17, 0.17]])
+      box(0.04, 0.44, 0.04, M.metal, 3 + dx + lx, 0, dz + lz);
+    const back = rbox(0.44, 0.5, 0.05, 0.02, M.wood, 3 + dx, 0.5, dz + (dz < 2.4 ? -0.2 : 0.2));
+    back.rotation.x = dz < 2.4 ? 0.08 : -0.08;
+  }
+  // pendant cluster over the table — fixtures read at day, glow at night via bloom
+  for (const dx of [-0.7, 0, 0.7]) {
+    box(0.02, 1.1 - Math.abs(dx) * 0.3, 0.02, M.metal, 3 + dx, 3.4 - (1.1 - Math.abs(dx) * 0.3), 2.4, { cast: false });
+    const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 0.2, 24), M.metal);
+    shade.position.set(3 + dx, 2.2 + Math.abs(dx) * 0.3, 2.4);
+    shade.castShadow = true; root.add(shade);
+  }
+
+  // kitchen island against the west wall + wall shelf with books
+  rbox(3.0, 0.88, 1.05, 0.03, M.wood, -3.8, 0, -3.6);
+  rbox(3.12, 0.06, 1.15, 0.02, M.counter, -3.8, 0.88, -3.6);           // counter top
+  rbox(0.4, 0.34, 0.28, 0.03, M.counter, -4.6, 0.94, -3.6);            // sink hint
+  for (let s = 0; s < 4; s++) box(2.6, 0.035, 0.26, M.wood, 1.5, 1.15 + s * 0.5, -4.83);  // shelves
+  {
+    const rnd = ((a) => () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; })(31);
+    const bookCols = ['#a34a32', '#4a5d3a', '#33465e', '#b98a4a', '#7a4a5e', '#5e5a4a'];
+    for (let s = 0; s < 4; s++) for (let b = 0; b < 9; b++) {
+      if (rnd() < 0.25) continue;
+      const bw = 0.06 + rnd() * 0.05, bh = 0.26 + rnd() * 0.14;
+      box(bw, bh, 0.2, new THREE.MeshStandardMaterial({ color: bookCols[(s * 9 + b) % 6], roughness: 0.9 }),
+        0.45 + b * 0.26 + rnd() * 0.06, 1.19 + s * 0.5, -4.82, { cast: false });
+    }
+  }
+  // framed art on the north wall
+  for (const [ax, aw, ah] of [[-1.4, 1.1, 1.4], [0.2, 0.7, 0.9]]) {
+    box(aw, ah, 0.05, M.trim, ax, 1.5, -4.86, { cast: false });
+    box(aw - 0.12, ah - 0.12, 0.02, M.darkFloor, ax, 1.56, -4.83, { cast: false });
+  }
 
   // --- upper-floor furniture: bedroom (north-west, on the slab)
-  box(2.6, 0.4, 2.0, M.fabric, -3, 3.65, -3);      // bed base
-  box(2.6, 0.5, 0.3, M.wood, -3, 3.65, -3.95);     // headboard
-  box(2.4, 0.18, 1.7, M.warmWall, -3, 4.05, -2.9); // mattress/duvet
+  rbox(2.7, 0.28, 2.1, 0.05, M.wood, -3, 3.68, -3);                    // bed frame
+  rbox(2.5, 0.24, 1.9, 0.09, M.trim, -3, 3.96, -3);                    // mattress
+  rbox(2.5, 0.16, 0.8, 0.07, M.fabric, -3, 4.14, -2.55);               // folded duvet
+  for (const px of [-0.55, 0.55]) rbox(0.8, 0.14, 0.45, 0.06, M.trim, -3 + px, 4.2, -3.7);  // pillows
+  rbox(2.7, 0.5, 0.08, 0.03, M.wood, -3, 3.9, -3.98);                  // headboard
+  for (const nx of [-4.6, -1.4]) rbox(0.5, 0.4, 0.4, 0.03, M.wood, nx, 3.68, -3.8);         // nightstands
 
   // --- trees outside: organic displaced crowns with a baked volume gradient
   // (dark underside → sun-lit top) + per-tree hue/shape variation, so they read
@@ -412,6 +485,59 @@ function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
   }
 })();
 
+// ---------------------------------------------------------------- instanced grass
+// The single biggest ground-realism lever: ~14k wind-swayed blades replace the flat
+// texture read. ShaderMaterial → instanceMatrix applied manually (02's lesson).
+const grassUniforms = { uTime: { value: 0 }, uNight: { value: 0 } };
+(function buildGrass() {
+  const rnd = ((a) => () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; })(1234);
+  const COUNT = 20000;
+  const geo = new THREE.PlaneGeometry(0.05, 0.28, 1, 2);   // lawn, not reeds
+  geo.translate(0, 0.14, 0);
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.DoubleSide,
+    uniforms: grassUniforms,
+    vertexShader: `
+      uniform float uTime;
+      varying float vH; varying float vShade;
+      void main(){
+        vH = position.y / 0.28;
+        vec4 local = vec4(position, 1.0);
+        vShade = fract(instanceMatrix[3][0] * 0.43 + instanceMatrix[3][2] * 0.71);
+        // wind: bend increases toward the tip, phase varies per blade position
+        float sway = sin(uTime * 1.6 + instanceMatrix[3][0] * 0.8 + instanceMatrix[3][2] * 1.1) * 0.05 * vH * vH;
+        local.x += sway; local.z += sway * 0.6;
+        vec4 w = modelMatrix * instanceMatrix * local;
+        gl_Position = projectionMatrix * viewMatrix * w;
+      }`,
+    fragmentShader: `
+      uniform float uNight;
+      varying float vH; varying float vShade;
+      void main(){
+        vec3 base = mix(vec3(0.25, 0.33, 0.14), vec3(0.56, 0.66, 0.31), vH);   // dark root → lit tip
+        base *= 0.85 + vShade * 0.3;
+        base *= mix(1.0, 0.2, uNight);   // unlit shader — must follow the day into darkness
+        gl_FragColor = vec4(base, 1.0);
+      }`,
+  });
+  const inst = new THREE.InstancedMesh(geo, mat, COUNT);
+  inst.receiveShadow = true;
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), s = new THREE.Vector3(), p = new THREE.Vector3();
+  let placed = 0;
+  while (placed < COUNT) {
+    const x = (rnd() - 0.5) * 38, z = (rnd() - 0.5) * 38;
+    if (x > -8.2 && x < 8.2 && z > -6.2 && z < 7.8) continue;   // house + terrace footprint
+    if (x > 0 && x < 6.6 && z > 4.6 && z < 8.4) continue;       // pool
+    p.set(x, 0, z);
+    e.set((rnd() - 0.5) * 0.12, rnd() * 6.28, (rnd() - 0.5) * 0.12); q.setFromEuler(e);
+    const sc = 0.65 + rnd() * 0.5; s.set(sc, sc, sc);
+    m.compose(p, q, s);
+    inst.setMatrixAt(placed++, m);
+  }
+  inst.instanceMatrix.needsUpdate = true;
+  scene.add(inst);
+})();
+
 // ---------------------------------------------------------------- lights
 const sun = new THREE.DirectionalLight('#ffd9a0', 3.2);
 sun.castShadow = true;
@@ -424,6 +550,12 @@ scene.add(sun, sun.target);
 
 const ambient = new THREE.HemisphereLight('#b89878', '#14110c', 0.35);
 scene.add(ambient);
+
+// daylight interior fill — fakes sky bounce under the deep roof overhang so the
+// living space doesn't sink into mud while the sun is up
+const fill = new THREE.PointLight('#fff2e2', 1.3, 16, 2);
+fill.position.set(0, 2.6, 0.8);
+scene.add(fill);
 
 // interior lights that come on at night
 const interiorLights = [];
@@ -510,7 +642,9 @@ function applyDay(t) {
   ambient.intensity = lerp(a.ambI, b.ambI, k);
   const pt = lerp(a.pt, b.pt, k);
   for (const p of interiorLights) p.intensity = pt * 10;     // real room fill once the sun is gone
-  M.warmWall.emissiveIntensity = pt * 0.42;                  // surfaces self-glow → bloom → lantern
+  fill.intensity = 1.3 * (1 - pt);                           // day bounce hands over to the lamps
+  M.warmWall.emissiveIntensity = pt * 0.3;                   // surfaces self-glow → bloom → lantern
+  grassUniforms.uNight.value = pt;
   M.floor.emissiveIntensity = pt * 0.30;
   renderer.toneMappingExposure = lerp(a.expo, b.expo, k);
   bloom.strength = 0.18 + pt * 0.55;
@@ -596,6 +730,7 @@ loop((elapsed, dt) => {
   dust.position.y = Math.sin(elapsed * 0.2) * 0.15;
   vig.uniforms.uTime.value = elapsed;
   skyUniforms.uTime.value = elapsed;
+  grassUniforms.uTime.value = reducedMotion ? 0 : elapsed;
   composer.render();
 });
 
