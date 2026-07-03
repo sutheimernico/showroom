@@ -230,8 +230,9 @@ const sun = new THREE.Mesh(
         vec3 core = vec3(1.0, 0.82, 0.45);
         vec3 col = mix(edge, mid, limb);
         col = mix(col, core, limb*limb);
-        col *= 0.72 + gran * 0.42;                            // visible cell structure
+        col *= 0.72 + gran * 0.42 * (1.0 - limb * 0.45);      // calm centre, lively limb
         col *= 1.0 - spots * 0.45 * limb;                     // sunspots, centre only
+        col += vec3(1.0, 0.45, 0.15) * pow(1.0 - mu, 5.0) * 0.9;  // chromosphere rim glow
         // sweet spot between the two failure modes: 0.72 read as a matte beige ball,
         // anything past ~1.0 + full bloom clipped the centre to a flat white disc.
         // Peak ≈ 1.0 → ACES renders a hot yellow centre that keeps its granulation,
@@ -242,17 +243,25 @@ const sun = new THREE.Mesh(
 );
 scene.add(sun);
 // corona
+const coronaUniforms = { uTime: { value: 0 } };
 const corona = new THREE.Mesh(
   new THREE.IcosahedronGeometry(BODIES[0].r * 1.7, 16),
   new THREE.ShaderMaterial({
     transparent: true, blending: THREE.AdditiveBlending, side: THREE.BackSide, depthWrite: false,
-    uniforms: {},
-    vertexShader: `varying vec3 vN; varying vec3 vW; void main(){ vN=normalize(mat3(modelMatrix)*normal); vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; gl_Position=projectionMatrix*viewMatrix*w; }`,
-    fragmentShader: `varying vec3 vN; varying vec3 vW;
+    uniforms: coronaUniforms,
+    vertexShader: `varying vec3 vN; varying vec3 vW; varying vec3 vObj;
+      void main(){ vObj=position; vN=normalize(mat3(modelMatrix)*normal); vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; gl_Position=projectionMatrix*viewMatrix*w; }`,
+    // streaked corona: radial fbm strands drifting slowly — a flat falloff read as a
+    // structureless frosted-glass halo
+    fragmentShader: NOISE + `uniform float uTime; varying vec3 vN; varying vec3 vW; varying vec3 vObj;
       void main(){ vec3 v=normalize(cameraPosition-vW);
         // clamp the pow base: interpolation pushes |dot| past 1.0, and pow(negative, 1.8)
         // is NaN in GLSL — one NaN texel smears into giant black blocks in bloom's mips
         float f=pow(clamp(1.0-abs(dot(vN,v)),0.0,1.0),1.8);
+        vec3 p = normalize(vObj);
+        float ang = atan(p.y, p.x + step(abs(p.x) + abs(p.y), 1e-6) * 1e-6);
+        float streak = 0.5 + 1.0 * fbm(vec3(ang * 3.5, p.z * 2.6, uTime * 0.05));
+        f *= streak;
         vec3 col = mix(vec3(0.9,0.3,0.08), vec3(1.0,0.6,0.2), f);  // redder outer falloff
         gl_FragColor=vec4(col*f, f*0.85); }`,
   })
@@ -266,16 +275,18 @@ const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
     const c = document.createElement('canvas'); c.width = c.height = 256;
     const g = c.getContext('2d');
     const gr = g.createRadialGradient(128, 128, 0, 128, 128, 128);
-    gr.addColorStop(0, 'rgba(255,246,220,.9)');
-    gr.addColorStop(0.32, 'rgba(255,200,110,.42)');
-    gr.addColorStop(0.62, 'rgba(255,150,60,.12)');
+    // gentle falloff — a steep one pushes disc+glow past 1.0 over a wide area and the
+    // clip boundary shows up as a ragged white iso-line through the granulation
+    gr.addColorStop(0, 'rgba(255,246,220,.72)');
+    gr.addColorStop(0.45, 'rgba(255,200,110,.28)');
+    gr.addColorStop(0.75, 'rgba(255,150,60,.08)');
     gr.addColorStop(1, 'rgba(255,140,50,0)');
     g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
   })(),
   transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, opacity: 1,
 }));
-sunGlow.scale.set(BODIES[0].r * 2.1, BODIES[0].r * 2.1, 1);
+sunGlow.scale.set(BODIES[0].r * 1.7, BODIES[0].r * 1.7, 1);
 sun.add(sunGlow);
 // lens flare — a cheap additive sprite sells the star as a light source; faded out
 // once the journey leaves the inner system (and frustum-culled behind the camera).
@@ -613,6 +624,8 @@ loop((elapsed, dt) => {
   _curAim.lerp(_aim, Math.min(1, ka * 1.3)); camera.lookAt(_curAim);
 
   sunUniforms.uTime.value = elapsed;
+  coronaUniforms.uTime.value = elapsed;
+  sun.rotation.y = elapsed * 0.008;
   // tame bloom while the frame is dominated by the sun — full strength returns for the
   // outer system and the black-hole finale, which live off it
   bloom.strength = mapClamp(seg, 0.8, 2.0, 0.45, 0.7);
