@@ -202,7 +202,7 @@ const stars = makeStars(4500, 1600);
 scene.add(stars);
 
 // ---------------------------------------------------------------- sun
-const sunUniforms = { uTime: { value: 0 } };
+const sunUniforms = { uTime: { value: 0 }, uMap: { value: null } };
 const sun = new THREE.Mesh(
   new THREE.IcosahedronGeometry(BODIES[0].r, 32),
   new THREE.ShaderMaterial({
@@ -210,34 +210,30 @@ const sun = new THREE.Mesh(
     vertexShader: `varying vec3 vObj; varying vec3 vW; varying vec3 vWN;
       void main(){ vObj=position; vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz;
         vWN=normalize(mat3(modelMatrix)*normal); gl_Position=projectionMatrix*viewMatrix*w; }`,
-    // Photosphere look: limb darkening (edge darker + redder than the centre, the single
-    // strongest "real sun" cue) over fine LOW-contrast granulation — the old two-octave
-    // high-contrast fbm read as big morphing lava-lamp blotches at full resolution.
-    fragmentShader: NOISE + `uniform float uTime; varying vec3 vObj; varying vec3 vW; varying vec3 vWN;
+    // Photo-based photosphere: the real granulation detail comes from Solar System
+    // Scope's sun map (procedural fbm topped out at "lava lamp"); two counter-drifting
+    // fbm-warped samples cross-fade so the surface visibly boils without tiling artifacts.
+    // Limb darkening + chromosphere rim stay analytic on top.
+    fragmentShader: NOISE + `uniform float uTime; uniform sampler2D uMap;
+      varying vec3 vObj; varying vec3 vW; varying vec3 vWN;
+      const float INV_PI = 0.3183098862, INV_2PI = 0.1591549431;
       void main(){
         vec3 p = normalize(vObj);
         vec3 V = normalize(cameraPosition - vW);
         float mu = clamp(dot(normalize(vWN), V), 0.0, 1.0);   // 1 centre → 0 limb
         float limb = pow(mu, 0.5);
-        float gran = fbm(p*6.0 + vec3(uTime*0.04)) * 0.55
-                   + fbm(p*16.0 - vec3(uTime*0.025)) * 0.45;
-        // filtered-photograph look (SDO): saturated yellow-orange disc with visible
-        // granulation cells and sparse darker spots — NOT a clipped white disc; the
-        // "glow" is bloom's job, so the surface itself must stay below clipping.
-        float spots = smoothstep(0.34, 0.2, fbm(p*3.5 + vec3(7.31)));
-        vec3 edge = vec3(0.85, 0.25, 0.05);
-        vec3 mid  = vec3(1.0, 0.62, 0.20);
-        vec3 core = vec3(1.0, 0.82, 0.45);
-        vec3 col = mix(edge, mid, limb);
-        col = mix(col, core, limb*limb);
-        col *= 0.72 + gran * 0.42 * (1.0 - limb * 0.45);      // calm centre, lively limb
-        col *= 1.0 - spots * 0.45 * limb;                     // sunspots, centre only
+        float nx = p.x + step(abs(p.x) + abs(p.z), 1e-6) * 1e-6;  // atan(0,0) guard
+        vec2 uv = vec2(atan(p.z, nx) * INV_2PI + 0.5, asin(clamp(p.y,-1.0,1.0)) * INV_PI + 0.5);
+        vec2 w1 = uv + vec2(fbm(p*5.0 + vec3(uTime*0.02)), fbm(p*5.0 - vec3(uTime*0.02))) * 0.009;
+        vec2 w2 = uv - vec2(fbm(p*7.0 - vec3(uTime*0.016)), fbm(p*7.0 + vec3(uTime*0.016))) * 0.009;
+        float xf = 0.5 + 0.5 * sin(uTime * 0.35);
+        vec3 tex = mix(texture2D(uMap, w1).rgb, texture2D(uMap, w2).rgb, xf);
+        vec3 col = tex * (0.35 + 0.75 * limb);                // limb darkening on photo base
+        col *= vec3(1.06, 0.97, 0.88);                        // warm grade
         col += vec3(1.0, 0.45, 0.15) * pow(1.0 - mu, 5.0) * 0.9;  // chromosphere rim glow
-        // sweet spot between the two failure modes: 0.72 read as a matte beige ball,
-        // anything past ~1.0 + full bloom clipped the centre to a flat white disc.
-        // Peak ≈ 1.0 → ACES renders a hot yellow centre that keeps its granulation,
-        // and only the top granules cross the 0.8 bloom threshold.
-        gl_FragColor = vec4(col * 0.88, 1.0);
+        // peak ≈ 0.9 — most of the disc stays below the bloom threshold; the glow
+        // sprite and bloom highlights supply the "hot", not RGB clipping
+        gl_FragColor = vec4(col * 0.92, 1.0);
       }`,
   })
 );
@@ -320,6 +316,7 @@ function loadTex(file, srgb) {
   t.anisotropy = maxAniso; t.wrapS = THREE.RepeatWrapping;
   return t;
 }
+sunUniforms.uMap.value = loadTex('sun.jpg', true);  // sun mesh is declared above the loader block
 
 // ---------------------------------------------------------------- planet factory
 const planetVert = `varying vec3 vObj; varying vec3 vW; varying vec3 vWN;
