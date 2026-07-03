@@ -40,3 +40,5 @@ object-space normal, so the geometry's own UVs and seams are irrelevant.
 - `earth_night.jpg`, `earth_clouds.png` — copied from designs/21-earth-descent/textures/ (NASA Black Marble / cloud layer, public domain — see that folder's SOURCES.md for provenance).
 
 - `sun.jpg` — Solar System Scope (CC BY 4.0, same source + attribution as the planet maps; credited in the gallery footer).
+- `moon.jpg`, `stars_milky_way.jpg` — Solar System Scope (CC BY 4.0, credited in gallery footer).
+- `earth_spec.jpg` — copied from designs/21-earth-descent/textures/ (see its SOURCES.md).

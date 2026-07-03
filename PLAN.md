@@ -307,3 +307,19 @@ User-requested concepts (2026-06-29): `21-earth-descent` (build now), `22-goal-s
   bloom (`c != c → 0`, clamp 0..64) so any missed source dies before the mip chain; plus a
   `?nomsaa` diagnostic flag in `shared/lib.js`. NOTE: the same unclamped-pow pattern exists in
   01/02/21's fresnel shaders — if Nico reports black blocks there, apply the same clamp + scrub.
+- 2026-07-03 — **realism expansion on `03-solar-journey`** (Nico: "deutlich realistischer, Monde,
+  sau beeindruckend"). (1) **Photo-based sun**: Solar System Scope sun map (CC BY 4.0, existing
+  footer credit covers it) replaces the procedural photosphere — two counter-drifting fbm-warped
+  samples cross-fade so the surface visibly boils without tiling; limb darkening, chromosphere
+  rim, streaked corona and glow sprite stay analytic on top. Procedural fbm alone topped out at
+  "lava lamp" after ~8 tuning rounds — texture was the step change. (2) **Moon systems** (PHYS
+  table: tilt/spin/moons per body): Luna with the real 2k moon map (fixed orbit phase 5.8 so it
+  sits in shot at the Earth station), Phobos/Deimos, the four Galilean moons (art-scaled but
+  honest ratios, Ganymede largest), Titan outside the rings, retrograde + steeply inclined
+  Triton — all orbiting on tilted pivots (fbm-shaded tinted rock via a small moonFrag; Luna uses
+  planetFrag). (3) **Axial tilts on the whole group** (spin axis + rings + moon orbits tilt
+  together; Uranus 1.71 rad) and per-body spin rates, Venus retrograde. (4) **Saturn's globe
+  shadow across the rings** (analytic ray-past-sphere test in the ring shader — the strongest
+  single Saturn realism cue). (5) **Earth ocean sun-glint** via 21's earth_spec.jpg, masked by
+  clouds. (6) **Milky Way sky sphere** (2k pano, dimmed 0x6e6e84) behind the point starfield.
+  Zero console errors; poster re-rendered (Earth + Luna).

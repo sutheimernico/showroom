@@ -201,6 +201,16 @@ function dot() {
 const stars = makeStars(4500, 1600);
 scene.add(stars);
 
+// Milky Way band — a dim photographic sky sphere behind the point stars grounds the
+// whole scene in a real galaxy instead of flat black
+const milky = new THREE.Mesh(
+  new THREE.SphereGeometry(1500, 48, 32),
+  new THREE.MeshBasicMaterial({ side: THREE.BackSide, depthWrite: false, color: 0x6e6e84 }),
+);
+milky.rotation.set(0.45, 0, 1.05);
+milky.renderOrder = -20;
+scene.add(milky);
+
 // ---------------------------------------------------------------- sun
 const sunUniforms = { uTime: { value: 0 }, uMap: { value: null } };
 const sun = new THREE.Mesh(
@@ -317,6 +327,8 @@ function loadTex(file, srgb) {
   return t;
 }
 sunUniforms.uMap.value = loadTex('sun.jpg', true);  // sun mesh is declared above the loader block
+milky.material.map = loadTex('stars_milky_way.jpg', true);
+milky.material.needsUpdate = true;
 
 // ---------------------------------------------------------------- planet factory
 const planetVert = `varying vec3 vObj; varying vec3 vW; varying vec3 vWN;
@@ -346,7 +358,7 @@ const planetFrag = `
 // Earth gets its own surface: NASA Black Marble city lights on the night side and a
 // drifting cloud layer (both reused from 21-earth-descent's texture set, see SOURCES.md).
 const earthFrag = `
-  uniform sampler2D uMap; uniform sampler2D uNight; uniform sampler2D uClouds; uniform float uTime;
+  uniform sampler2D uMap; uniform sampler2D uNight; uniform sampler2D uClouds; uniform sampler2D uSpec; uniform float uTime;
   varying vec3 vObj; varying vec3 vW; varying vec3 vWN;
   const float INV_PI = 0.3183098862, INV_2PI = 0.1591549431;
   void main(){
@@ -365,11 +377,50 @@ const earthFrag = `
     nightSide *= 1.0 - cl * 0.6;                                // clouds occlude the city lights
     vec3 col = mix(nightSide, day * (0.25 + 0.85*d), term);
     vec3 V = normalize(cameraPosition - vW);
+    // sun glint on open water — masked by the specular map and the cloud layer
+    float sp = texture2D(uSpec, uv).r;
+    vec3 R = reflect(-L, wn);
+    col += vec3(1.0, 0.92, 0.75) * pow(clamp(dot(R, V), 0.0, 1.0), 30.0) * sp * d * (1.0 - cl) * 0.7;
     float fres = pow(1.0 - clamp(dot(wn,V),0.0,1.0), 3.0);
     col += vec3(0.35,0.55,1.0) * fres * 0.5 * (0.25 + d);       // blue scatter rim
     gl_FragColor = vec4(col, 1.0);
   }`;
 
+// axial tilt (rad), spin rate (rad/s, Venus retrograde) and moon systems per body.
+// Moon sizes/distances are art-scaled like everything else, but ratios stay honest
+// (Ganymede > Io, Titan outside the rings, Triton retrograde + steeply inclined).
+const PHYS = {
+  mercury: { tilt: 0.001, spin: 0.010 },
+  venus:   { tilt: 0.05,  spin: -0.006 },
+  earth:   { tilt: 0.41,  spin: 0.050, moons: [{ r: 0.7, dist: 6.0, speed: 0.05, incl: 0.09, phase: 5.8, tex: 'moon.jpg' }] },
+  mars:    { tilt: 0.44,  spin: 0.048, moons: [
+    { r: 0.14, dist: 3.2, speed: 0.22, incl: 0.02, tint: 0x8a7f72 },      // Phobos
+    { r: 0.11, dist: 4.4, speed: 0.15, incl: 0.05, tint: 0x9a8f82 } ] },  // Deimos
+  jupiter: { tilt: 0.05,  spin: 0.120, moons: [
+    { r: 0.50, dist: 12.5, speed: 0.16, incl: 0.02, tint: 0xd8c26a },     // Io
+    { r: 0.42, dist: 14.8, speed: 0.12, incl: 0.04, tint: 0xcfc4b0 },     // Europa
+    { r: 0.72, dist: 17.6, speed: 0.09, incl: 0.03, tint: 0x9a8d7a },     // Ganymede
+    { r: 0.65, dist: 20.5, speed: 0.07, incl: 0.05, tint: 0x6f6558 } ] }, // Callisto
+  saturn:  { tilt: 0.47,  spin: 0.110, moons: [{ r: 0.6, dist: 21.0, speed: 0.06, incl: 0.06, tint: 0xd8a35a }] }, // Titan
+  uranus:  { tilt: 1.71,  spin: 0.080 },
+  neptune: { tilt: 0.49,  spin: 0.090, moons: [{ r: 0.45, dist: 9.5, speed: -0.08, incl: 2.7, tint: 0xbfc8d0 }] }, // Triton
+};
+
+// untextured minor moons: sun-lit fbm-shaded rock in the body's own tint
+const moonFrag = NOISE + `
+  uniform vec3 uTint; varying vec3 vObj; varying vec3 vW; varying vec3 vWN;
+  void main(){
+    vec3 n = normalize(vObj);
+    vec3 wn = normalize(vWN);
+    vec3 L = normalize(-vW);
+    float d = clamp(dot(wn, L), 0.0, 1.0);
+    float term = smoothstep(-0.05, 0.35, dot(wn, L));
+    vec3 col = uTint * (0.7 + 0.5 * fbm(n * 9.0));
+    col = mix(col * 0.03, col, term) * (0.30 + 0.70 * d);
+    gl_FragColor = vec4(col, 1.0);
+  }`;
+
+const moonPivots = [];
 function makePlanet(cfg) {
   const g = new THREE.Group();
   const isEarth = cfg.key === 'earth';
@@ -377,6 +428,7 @@ function makePlanet(cfg) {
   if (isEarth) {
     uniforms.uNight = { value: loadTex('earth_night.jpg', true) };
     uniforms.uClouds = { value: loadTex('earth_clouds.png', false) };
+    uniforms.uSpec = { value: loadTex('earth_spec.jpg', false) };
     uniforms.uTime = { value: 0 };
   }
   const mat = new THREE.ShaderMaterial({
@@ -384,8 +436,23 @@ function makePlanet(cfg) {
     vertexShader: planetVert, fragmentShader: isEarth ? earthFrag : planetFrag,
   });
   const body = new THREE.Mesh(new THREE.IcosahedronGeometry(cfg.r, 24), mat);
-  body.rotation.z = (cfg.key === 'uranus') ? 1.6 : 0.15;
   g.add(body);
+  const phys = PHYS[cfg.key] || {};
+  g.rotation.z = phys.tilt || 0;  // tilt the whole system: body spin axis, rings, moon orbits
+  for (const m of phys.moons || []) {
+    const pivot = new THREE.Group();
+    pivot.rotation.x = m.incl;
+    pivot.rotation.y = m.phase ?? (m.dist * 2.399) % 6.283;  // fixed phase where the station framing needs the moon in shot
+    pivot.userData.speed = m.speed;
+    const moonMat = m.tex
+      ? new THREE.ShaderMaterial({ uniforms: { uMap: { value: loadTex(m.tex, true) } }, vertexShader: planetVert, fragmentShader: planetFrag })
+      : new THREE.ShaderMaterial({ uniforms: { uTint: { value: new THREE.Color(m.tint) } }, vertexShader: planetVert, fragmentShader: moonFrag });
+    const moon = new THREE.Mesh(new THREE.IcosahedronGeometry(m.r, 12), moonMat);
+    moon.position.set(m.dist, 0, 0);
+    pivot.add(moon);
+    g.add(pivot);
+    moonPivots.push(pivot);
+  }
   if (cfg.atmo) {
     const atmo = new THREE.Mesh(
       new THREE.IcosahedronGeometry(cfg.r * 1.13, 16),
@@ -409,12 +476,22 @@ function makePlanet(cfg) {
       new THREE.ShaderMaterial({
         transparent:true, side:THREE.DoubleSide, depthWrite:false,
         uniforms:{ uInner:{value:cfg.r*1.35}, uOuter:{value:cfg.r*2.3},
+          uCenter:{value:new THREE.Vector3(cfg.x, 0, 0)}, uPlanetR:{value:cfg.r},
           uRingColor:{value:loadTex('saturn_ring_color.jpg', true)}, uRingAlpha:{value:loadTex('saturn_ring_alpha.gif', false)} },
         vertexShader:`varying vec3 vObj; varying vec3 vW; void main(){ vObj=position; vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; gl_Position=projectionMatrix*viewMatrix*w; }`,
-        fragmentShader: `uniform float uInner; uniform float uOuter; uniform sampler2D uRingColor; uniform sampler2D uRingAlpha; varying vec3 vObj; varying vec3 vW;
+        fragmentShader: `uniform float uInner; uniform float uOuter; uniform sampler2D uRingColor; uniform sampler2D uRingAlpha;
+          uniform vec3 uCenter; uniform float uPlanetR; varying vec3 vObj; varying vec3 vW;
           void main(){ float r=length(vObj.xy); float t=clamp((r-uInner)/(uOuter-uInner),0.0,1.0);
             vec3 col = texture2D(uRingColor, vec2(t, 0.5)).rgb;       // real radial ring profile
             float a = texture2D(uRingAlpha, vec2(t, 0.5)).r;          // transparency pattern (Cassini gaps etc.)
+            // planet shadow across the rings — the single strongest "real Saturn" cue:
+            // ring point is shadowed when the ray toward the Sun (origin) passes the globe
+            vec3 L = normalize(-vW);
+            vec3 toC = uCenter - vW;
+            float proj = dot(toC, L);
+            float axDist = length(toC - proj * L);
+            float sh = proj > 0.0 ? smoothstep(uPlanetR * 0.86, uPlanetR * 1.04, axDist) : 1.0;
+            col *= 0.10 + 0.90 * sh;
             gl_FragColor = vec4(col, a); }`,
       })
     );
@@ -628,7 +705,8 @@ loop((elapsed, dt) => {
   bloom.strength = mapClamp(seg, 0.8, 2.0, 0.45, 0.7);
   diskUniforms.uTime.value = elapsed;
   disk.rotation.z = elapsed * 0.06;
-  for (const p of planets) { p.body.rotation.y += dt * 0.06; }   // textures are static; just spin the bodies
+  for (const p of planets) { p.body.rotation.y += dt * ((PHYS[p.cfg.key] || {}).spin ?? 0.05); }
+  for (const pv of moonPivots) pv.rotation.y += dt * pv.userData.speed;
   earthMat.uniforms.uTime.value = elapsed;
   // distance-shot effect only: at the Sol close-up the sprite sits right on the disc
   // and repaints the centre as a white blob (+ its streak), so it must be gone by seg 1
