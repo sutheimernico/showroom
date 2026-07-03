@@ -332,3 +332,16 @@ User-requested concepts (2026-06-29): `21-earth-descent` (build now), `22-goal-s
   storm shimmer; (10) **solar prominences** (pulsing additive limb arcs, faded past seg 2.4)
   and (11) Uranus' thin near-vertical ring; (12) Earth got a warm **sunset band along the
   terminator**. Fix along the way: 03 had no mulberry32 (belt placement) — helper copied from 23.
+  Third wave ("Interstellar-Niveau" — calibrated honestly as the realtime approximation):
+  (13) **gravitational lensing** at the black hole — a screen-space ShaderPass (rs²/r radial
+  deflection toward the hole's projected position, capture zone → black) ramped in over the final
+  approach; the accretion disc visibly folds over and under the horizon, the Gargantua signature.
+  (14) **Rayleigh-flavoured Earth atmosphere** — blue day limb rolling into an orange scattering
+  band at the terminator (thin! at width 0.16 it read as a fat orange stripe; 0.06 is right).
+  (15) **Moon shadows on the gas giants** — up to 4 moon world-positions fed per-frame into
+  gasFrag, analytic ray-past-sphere darkening; Galilean transits now cast moving shadows across
+  Jupiter like the Juno shots. Tuning lessons: comet tail needed the same near-camera fade as the
+  dust (a close tail reads as a chain of fat pearls) plus an orbit phase that keeps it out of the
+  Earth station's opening shot; the asteroid belt needed coal-dark albedo (~0.05 real) and wider
+  scatter — bright rocks lined up into a pearl band across every inner-planet backdrop because
+  the camera always looks down the chain straight through the belt.
