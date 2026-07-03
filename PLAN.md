@@ -345,3 +345,12 @@ User-requested concepts (2026-06-29): `21-earth-descent` (build now), `22-goal-s
   Earth station's opening shot; the asteroid belt needed coal-dark albedo (~0.05 real) and wider
   scatter — bright rocks lined up into a pearl band across every inner-planet backdrop because
   the camera always looks down the chain straight through the belt.
+- 2026-07-03 — **bright archviz pass on `01-house-walkthrough`** (Nico: "hellere Designs, kommt
+  professioneller"; 23-apex explicitly excluded — stays blocked on Higgsfield credits). The arc
+  now STARTS as a bright clear afternoon (white sun, blue zenith, drifting fbm cumulus in the sky
+  dome via new uCloud/uTime uniforms) and only rolls into golden hour past t≈0.4 — the old open
+  sat deep in golden hour and read as a flat orange wash. Five day-stops instead of four (14:30 →
+  21:00, hour axis + copy updated); brighter materials (plaster #eae3d6, concrete #dcd6ca, grass
+  tinted #b3c489, brighter foliage, glass with stronger env reflection); environmentIntensity
+  0.4→0.55; vignette softened (0.55→0.74 floor) — a heavy vignette reads moody, not professional.
+  Night lantern payoff unchanged. Poster re-rendered on the daylight open.

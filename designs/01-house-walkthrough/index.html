@@ -108,10 +108,10 @@
 </div>
 
 <aside class="hours" aria-hidden="true">
-  <span class="tick" style="top:0%">16:40</span>
-  <span class="tick" style="top:50%">18:15</span>
+  <span class="tick" style="top:0%">14:30</span>
+  <span class="tick" style="top:50%">17:45</span>
   <span class="tick" style="top:100%">21:00</span>
-  <span class="now util">16:40</span>
+  <span class="now util">14:30</span>
   <span class="marker"></span>
 </aside>
 
@@ -128,9 +128,9 @@
 
   <section class="panel">
     <div class="inner">
-      <div class="eyebrow">16:40 — Golden Hour</div>
+      <div class="eyebrow">15:30 — Full Light</div>
       <h2 class="display">The Threshold</h2>
-      <p>The west façade opens completely. At this hour the whole ground floor turns the colour of honey.</p>
+      <p>The west façade opens completely. In full daylight the house is all edges and air — glass, white plaster, and the garden walking straight in.</p>
     </div>
   </section>
 
@@ -193,7 +193,7 @@ camera.position.set(15, 7, 16);
 // soft image-based lighting so even simple geometry reads as real
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.5).texture;
-scene.environmentIntensity = 0.4;
+scene.environmentIntensity = 0.55;
 
 // ---------------------------------------------------------------- sky dome
 // A real dusk sky instead of a flat clear colour: a vertical horizon→zenith
@@ -207,6 +207,8 @@ const skyUniforms = {
   uSunCol:  { value: new THREE.Color('#ffd9a0') },
   uSunDir:  { value: new THREE.Vector3(-1, 0.4, 0.8).normalize() },
   uStars:   { value: 0 },
+  uCloud:   { value: 1 },
+  uTime:    { value: 0 },
 };
 const sky = new THREE.Mesh(
   new THREE.SphereGeometry(180, 40, 24),
@@ -217,9 +219,12 @@ const sky = new THREE.Mesh(
       void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: /* glsl */`
       uniform vec3 uHorizon, uZenith, uSunCol, uSunDir;
-      uniform float uStars;
+      uniform float uStars, uCloud, uTime;
       varying vec3 vDir;
       float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise2(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+        return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }
+      float fbm2(vec2 p){ float v=0.0, a=0.5; for(int k=0;k<4;k++){ v+=a*noise2(p); p*=2.03; a*=0.5; } return v; }
       void main(){
         vec3 dir = normalize(vDir);
         float h = clamp(dir.y, 0.0, 1.0);
@@ -229,6 +234,14 @@ const sky = new THREE.Mesh(
         col += uSunCol * (pow(sd, 6.0) * 0.5 + pow(sd, 90.0) * 1.1);
         // bright sliver hugging the horizon line
         col += uHorizon * exp(-dir.y * dir.y * 40.0) * 0.18;
+        // drifting cumulus banks — the daylight sky must not read as a flat wash
+        if (uCloud > 0.001 && dir.y > 0.02) {
+          vec2 cuv = dir.xz / (dir.y + 0.18) * 1.35;
+          float cl = smoothstep(0.5, 0.74, fbm2(cuv * 0.75 + vec2(uTime * 0.005, 0.0)));
+          float horFade = smoothstep(0.02, 0.22, dir.y);
+          vec3 cloudCol = mix(uHorizon, vec3(1.02, 1.0, 0.97), 0.72) * (0.8 + 0.45 * pow(sd, 2.0));
+          col = mix(col, cloudCol, cl * horFade * uCloud * 0.85);
+        }
         // procedural stars — upper hemisphere, night only
         if (uStars > 0.001) {
           vec2 uv = dir.xz / max(dir.y, 0.10);
@@ -266,17 +279,17 @@ function pbr(name, rx, ry = rx) {
 
 // ---------------------------------------------------------------- materials
 const M = {
-  concrete: new THREE.MeshStandardMaterial({ ...pbr('concrete_floor_02', 4), color: '#c2b39c', roughness: 1, metalness: 0 }),
+  concrete: new THREE.MeshStandardMaterial({ ...pbr('concrete_floor_02', 4), color: '#dcd6ca', roughness: 1, metalness: 0 }),
   // emissive stays at 0 by day; applyDay() ramps it up after dusk so the interior
   // surfaces glow and the house reads as a lit lantern through the glass at night.
-  warmWall: new THREE.MeshStandardMaterial({ ...pbr('painted_plaster_wall', 3, 1.2), color: '#dcc69c', roughness: 1, metalness: 0, emissive: '#ffb472', emissiveIntensity: 0 }),
+  warmWall: new THREE.MeshStandardMaterial({ ...pbr('painted_plaster_wall', 3, 1.2), color: '#eae3d6', roughness: 1, metalness: 0, emissive: '#ffb472', emissiveIntensity: 0 }),
   floor: new THREE.MeshStandardMaterial({ ...pbr('wood_floor_deck', 4, 3.3), roughness: 1, metalness: 0, emissive: '#ffa050', emissiveIntensity: 0 }),
   darkFloor: new THREE.MeshStandardMaterial({ color: '#5e4a36', roughness: 0.5, metalness: 0 }),
   wood: new THREE.MeshStandardMaterial({ color: '#8a5a36', roughness: 0.6, metalness: 0 }),
   fabric: new THREE.MeshStandardMaterial({ color: '#b9b2a4', roughness: 0.95, metalness: 0 }),
   metal: new THREE.MeshStandardMaterial({ color: '#2a2723', roughness: 0.35, metalness: 0.9 }),
-  glass: new THREE.MeshStandardMaterial({ color: '#9fb8c4', roughness: 0.05, metalness: 0, transparent: true, opacity: 0.16, envMapIntensity: 0.7, side: THREE.DoubleSide }),
-  ground: new THREE.MeshStandardMaterial({ ...pbr('aerial_grass_rock', 7), roughness: 1, metalness: 0 }),
+  glass: new THREE.MeshStandardMaterial({ color: '#b8ccd6', roughness: 0.05, metalness: 0, transparent: true, opacity: 0.12, envMapIntensity: 1.0, side: THREE.DoubleSide }),
+  ground: new THREE.MeshStandardMaterial({ ...pbr('aerial_grass_rock', 7), color: '#b3c489', roughness: 1, metalness: 0 }),
   water: new THREE.MeshStandardMaterial({ color: '#1b2733', roughness: 0.08, metalness: 0.4, transparent: true, opacity: 0.85 }),
   foliage: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 }),
   trunk: new THREE.MeshStandardMaterial({ color: '#3a2c20', roughness: 0.95 }),
@@ -352,7 +365,7 @@ function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
   // --- trees outside: organic displaced crowns with a baked volume gradient
   // (dark underside → sun-lit top) + per-tree hue/shape variation, so they read
   // as a small grove instead of faceted lollipops.
-  const cTop = new THREE.Color('#73813f'), cBot = new THREE.Color('#1f2718');
+  const cTop = new THREE.Color('#82944a'), cBot = new THREE.Color('#2c3a22');
   // one lumpy, smooth-shaded, vertex-coloured crown — displacement is a sum of
   // low-freq sines (deterministic, no facets); vertical gradient fakes AO + skylight.
   const makeCrown = (radius, seed, hue) => {
@@ -466,11 +479,15 @@ const aim = new THREE.CatmullRomCurve3([
 
 // ---------------------------------------------------------------- day → night keyframes
 // hor/zen = sky-dome horizon & zenith colours; fog colour follows the horizon.
+// The arc now STARTS as a bright, clear afternoon (archviz daylight — white sun,
+// blue sky, drifting clouds) and only then rolls through golden hour into night.
+// The old version opened deep in golden hour, which read as a flat orange wash.
 const stops = [
-  { at: 0.00, hor: '#ffb878', zen: '#34304e', sun: '#ffc27a', sunI: 2.4, ambI: 0.55, pt: 0.0,  fog: 0.005, expo: 0.96, stars: 0.0,  sunPos: [-15, 7, 12] },
-  { at: 0.40, hor: '#f4853c', zen: '#28223a', sun: '#ff9a52', sunI: 2.2, ambI: 0.46, pt: 0.04, fog: 0.007, expo: 0.92, stars: 0.0,  sunPos: [-20, 3.5, 4] },
-  { at: 0.70, hor: '#9a6678', zen: '#171b30', sun: '#8a93c4', sunI: 0.7, ambI: 0.42, pt: 0.5,  fog: 0.011, expo: 0.9,  stars: 0.5,  sunPos: [-13, 1.5, -9] },
-  { at: 1.00, hor: '#15203c', zen: '#05070f', sun: '#3b4a86', sunI: 0.14, ambI: 0.36, pt: 1.0, fog: 0.015, expo: 1.0,  stars: 1.0,  sunPos: [-8, -1, -14] },
+  { at: 0.00, hor: '#cde0ef', zen: '#4d82d6', sun: '#fff3dc', sunI: 3.6, ambI: 0.9,  pt: 0.0,  fog: 0.0022, expo: 1.1,  stars: 0.0, cloud: 1.0,  sunPos: [-8, 13, 13] },
+  { at: 0.38, hor: '#f0d6a8', zen: '#3d6cba', sun: '#ffe2b4', sunI: 3.1, ambI: 0.72, pt: 0.0,  fog: 0.004,  expo: 1.05, stars: 0.0, cloud: 0.85, sunPos: [-14, 7, 12] },
+  { at: 0.62, hor: '#ff9a52', zen: '#2c2f52', sun: '#ffab5e', sunI: 2.2, ambI: 0.5,  pt: 0.06, fog: 0.007,  expo: 0.98, stars: 0.0, cloud: 0.5,  sunPos: [-20, 3.5, 4] },
+  { at: 0.78, hor: '#9a6678', zen: '#171b30', sun: '#8a93c4', sunI: 0.7, ambI: 0.42, pt: 0.55, fog: 0.011,  expo: 0.94, stars: 0.5, cloud: 0.22, sunPos: [-13, 1.5, -9] },
+  { at: 1.00, hor: '#15203c', zen: '#05070f', sun: '#3b4a86', sunI: 0.14, ambI: 0.36, pt: 1.0, fog: 0.015,  expo: 1.0,  stars: 1.0, cloud: 0.1,  sunPos: [-8, -1, -14] },
 ];
 const _cA = new THREE.Color(), _cB = new THREE.Color(), _c = new THREE.Color();
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -483,6 +500,7 @@ function applyDay(t) {
   skyUniforms.uHorizon.value.copy(_c); scene.fog.color.copy(_c);
   _cA.set(a.zen); _cB.set(b.zen); skyUniforms.uZenith.value.copy(_cA.lerp(_cB, k));
   skyUniforms.uStars.value = lerp(a.stars, b.stars, k);
+  skyUniforms.uCloud.value = lerp(a.cloud, b.cloud, k);
   scene.fog.density = lerp(a.fog, b.fog, k);
   _cA.set(a.sun); _cB.set(b.sun); sun.color.copy(_cA.lerp(_cB, k));
   skyUniforms.uSunCol.value.copy(sun.color);
@@ -515,7 +533,7 @@ const VignetteGrain = {
       vec3 col = texture2D(tDiffuse, vUv).rgb;
       vec2 d = vUv - 0.5;
       float vig = smoothstep(0.95, 0.25, dot(d, d) * uVig * 2.2);
-      col *= mix(0.55, 1.0, vig);
+      col *= mix(0.74, 1.0, vig);   // gentle — a heavy vignette reads moody, not professional
       col += (rand(vUv + uTime) - 0.5) * uGrain;
       gl_FragColor = vec4(col, 1.0);
     }`,
@@ -528,7 +546,7 @@ smoothScroll({ lerp: 0.08 });
 const state = { t: 0 };
 const marker = document.querySelector('.hours .marker');
 const nowLabel = document.querySelector('.hours .now');
-const fmtHour = (t) => { const m = Math.round(lerp(16 * 60 + 40, 21 * 60, t)); return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
+const fmtHour = (t) => { const m = Math.round(lerp(14 * 60 + 30, 21 * 60, t)); return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
 
 ScrollTrigger.create({
   trigger: '.scroll', start: 'top top', end: 'bottom bottom', scrub: 1,
@@ -577,6 +595,7 @@ loop((elapsed, dt) => {
   dust.rotation.y = elapsed * 0.012;
   dust.position.y = Math.sin(elapsed * 0.2) * 0.15;
   vig.uniforms.uTime.value = elapsed;
+  skyUniforms.uTime.value = elapsed;
   composer.render();
 });
 
