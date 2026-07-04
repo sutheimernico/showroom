@@ -376,10 +376,10 @@ const practicals = { pendants: [], fills: [], eaves: [], pool: null, dayFill: nu
 // hor/zen: sky gradient. sunPos: west-travelling arc (west = -x). pt: practicals 0→1.
 // envI: PMREM environment intensity. expo: AgX exposure trim.
 const stops = [
-  { at: 0.00, hor: '#dbe9f4', zen: '#4a7fd4', sun: '#fff6e6', sunI: 4.2, hemiI: 0.55, envI: 0.85, pt: 0.00, fog: 0.0016, expo: 1.15, stars: 0.0,  cloud: 1.0,  sunPos: [-14, 18, 10] },
-  { at: 0.35, hor: '#eed9ac', zen: '#3f6fbe', sun: '#ffe7bd', sunI: 3.4, hemiI: 0.45, envI: 0.75, pt: 0.00, fog: 0.0030, expo: 1.08, stars: 0.0,  cloud: 0.8,  sunPos: [-20, 10, 9] },
-  { at: 0.60, hor: '#ff9e58', zen: '#2e3560', sun: '#ffb066', sunI: 2.4, hemiI: 0.32, envI: 0.60, pt: 0.12, fog: 0.0060, expo: 1.00, stars: 0.0,  cloud: 0.45, sunPos: [-24, 4, 2] },
-  { at: 0.80, hor: '#8e5f7a', zen: '#141a33', sun: '#7f8ec2', sunI: 0.6, hemiI: 0.22, envI: 0.38, pt: 0.60, fog: 0.0090, expo: 0.95, stars: 0.45, cloud: 0.2,  sunPos: [-16, 1.2, -8] },
+  { at: 0.00, hor: '#dbe9f4', zen: '#4a7fd4', sun: '#fff6e6', sunI: 9.5, hemiI: 1.7,  envI: 1.0,  pt: 0.00, fog: 0.0016, expo: 3.4,  stars: 0.0,  cloud: 1.0,  sunPos: [-14, 18, 10] },
+  { at: 0.35, hor: '#eed9ac', zen: '#3f6fbe', sun: '#ffe7bd', sunI: 7.8, hemiI: 1.4,  envI: 0.9,  pt: 0.00, fog: 0.0030, expo: 3.0,  stars: 0.0,  cloud: 0.8,  sunPos: [-20, 10, 9] },
+  { at: 0.60, hor: '#ff9e58', zen: '#2e3560', sun: '#ffb066', sunI: 3.0, hemiI: 0.45, envI: 0.75, pt: 0.12, fog: 0.0060, expo: 1.15, stars: 0.0,  cloud: 0.45, sunPos: [-24, 4, 2] },
+  { at: 0.80, hor: '#8e5f7a', zen: '#141a33', sun: '#7f8ec2', sunI: 0.6, hemiI: 0.22, envI: 0.38, pt: 0.60, fog: 0.0090, expo: 1.00, stars: 0.45, cloud: 0.2,  sunPos: [-16, 1.2, -8] },
   { at: 1.00, hor: '#0f1830', zen: '#04060d', sun: '#3c4c8a', sunI: 0.1, hemiI: 0.15, envI: 0.24, pt: 1.00, fog: 0.0120, expo: 1.00, stars: 1.0,  cloud: 0.08, sunPos: [-8, -2, -12] },
 ];
 const _cA = new THREE.Color(), _cB = new THREE.Color();
