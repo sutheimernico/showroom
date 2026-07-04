@@ -470,7 +470,9 @@ const grassWind = { value: 0 };
     const r = Math.sqrt(rnd()) * 34;                       // uniform-by-area disc
     const ang = rnd() * 6.2832;
     const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
-    if (x > -8.6 && x < 8.6 && z > -6.4 && z < 8.6) continue;   // house+terrace footprint
+    if (x > -6.8 && x < 6.8 && z > -4.8 && z < 4.8) continue;    // house + plinth
+    if (x > -6.2 && x < 7.4 && z > 3.8 && z < 9.7) continue;     // terrace + pool apron
+    if (x > -4.6 && x < -2.8 && z > 9.5 && z < 14.5) continue;   // stepping-paver corridor
     p.set(x, -0.12, z);
     e.set(0, rnd() * 6.2832, (rnd() - 0.5) * 0.15); q.setFromEuler(e);
     const sc = 0.7 + rnd() * 0.6; s.set(sc, sc * (0.8 + rnd() * 0.5), sc);
@@ -543,18 +545,17 @@ function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
 })();
 
 (function buildTerrace() {
-  // paver terrace platform, 2 steps down to the lawn, pool with dark liner + coping
+  // paver terrace platform, 12 cm curb above the lawn, pool with dark liner + coping
   box(13.2, 0.15, 5.6, M.pavers, 0.6, -0.15, 6.6, { cast: false });
-  box(13.2, 0.12, 0.5, M.pavers, 0.6, -0.27, 9.55, { cast: false });   // step 1
-  box(13.2, 0.12, 0.5, M.pavers, 0.6, -0.39, 10.05, { cast: false });  // step 2
-  // pool: coping ring + dark basin + water plane (material refined in Task 5)
-  box(4.6, 0.1, 2.9, M.concrete, 3.6, -0.05, 6.9, { cast: false });    // coping
-  box(4.2, 0.05, 2.5, M.darkStone, 3.6, -0.1, 6.9, { cast: false });   // basin hint
+  // pool: coping frame around a sunken water surface, dark basin floor below
+  for (const [w, d, px, pz] of [[4.6, 0.2, 3.6, 5.55], [4.6, 0.2, 3.6, 8.25], [0.2, 2.5, 1.4, 6.9], [0.2, 2.5, 5.8, 6.9]])
+    box(w, 0.1, d, M.concrete, px, -0.05, pz, { cast: false });
+  box(4.2, 0.05, 2.5, M.darkStone, 3.6, -0.4, 6.9, { cast: false });   // basin floor under the water
   const water = new THREE.Mesh(
     new THREE.PlaneGeometry(4.2, 2.5).rotateX(-Math.PI / 2),
     new THREE.MeshStandardMaterial({ color: '#0e3440', roughness: 0.05, metalness: 0.1, envMapIntensity: 1.4 })
   );
-  water.position.set(3.6, 0.02, 6.9);
+  water.position.set(3.6, 0.0, 6.9);
   root.add(water);
   // stepping pavers from terrace into the lawn
   for (let i = 0; i < 5; i++) box(0.9, 0.05, 0.6, M.pavers, -3.4 - i * 0.15, -0.10, 9.8 + i * 0.95, { cast: false });
