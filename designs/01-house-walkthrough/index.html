@@ -715,7 +715,15 @@ const aim = new THREE.CatmullRomCurve3([
 // ---------------------------------------------------------------- post
 const composer = makeComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-// SECTION: gtao — Task 8 inserts GTAOPass here (hardware GPUs only)
+// GTAO grounds every contact (furniture→floor, plinth→lawn, reveals) — the single
+// biggest "renders like archviz" post lever. Skipped on software rasterizers: the
+// depth/normal prepass is brutal on SwiftShader and shots only need composition.
+let gtao = null;
+if (!SOFT_GPU) {
+  gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
+  gtao.output = GTAOPass.OUTPUT.Default;
+  composer.addPass(gtao);
+}
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.12, 0.6, 0.85);
 composer.addPass(bloom);
 const VignetteGrain = {
@@ -765,6 +773,7 @@ function resize(w, h) {
   camera.aspect = w / h; camera.updateProjectionMatrix();
   renderer.setSize(w, h); composer.setSize(w, h);
   bloom.setSize(w, h);
+  if (gtao) gtao.setSize(w, h);
 }
 onResize(resize);
 attachLifecycle(renderer, scene, composer);
