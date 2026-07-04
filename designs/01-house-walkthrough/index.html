@@ -385,14 +385,104 @@ function applyDay(t) {
 }
 
 // ---------------------------------------------------------------- world
-// SECTION: ground — placeholder plane; Task 3 replaces with the layered lawn
-const groundPlaceholder = new THREE.Mesh(
-  new THREE.CircleGeometry(60, 48).rotateX(-Math.PI / 2),
-  new THREE.MeshStandardMaterial({ color: '#5b7a45', roughness: 1 })
-);
-groundPlaceholder.position.y = -0.12;
-groundPlaceholder.receiveShadow = true;
-root.add(groundPlaceholder);
+// SECTION: ground — layered lawn.
+// Layer 1: leafy_grass PBR ground. onBeforeCompile injects (a) a macro re-sample of the
+// same map at 1/9 scale to kill visible tiling, (b) soft sine mowing bands (shading-only,
+// never baked hard rects), (c) a worn dirt blend hugging the house plinth.
+const groundMat = new THREE.MeshStandardMaterial({ ...pbr('leafy_grass', 26), roughness: 1, metalness: 0 });
+groundMat.onBeforeCompile = (shader) => {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vWpos;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWpos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vWpos;')
+    .replace('#include <map_fragment>', `#include <map_fragment>
+      vec3 macro = texture2D(map, vMapUv * 0.11).rgb;
+      diffuseColor.rgb *= mix(vec3(1.0), macro * 1.8, 0.42);
+      float stripe = smoothstep(-0.9, 0.9, sin(vWpos.x * 0.7854));
+      diffuseColor.rgb *= 0.96 + stripe * 0.08;
+      float distEdge = max(abs(vWpos.x), abs(vWpos.z) - 1.0);
+      float wear = smoothstep(10.5, 8.0, distEdge);
+      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.85, 0.78, 0.62), wear * 0.22);
+    `);
+};
+const ground = new THREE.Mesh(new THREE.CircleGeometry(60, 48).rotateX(-Math.PI / 2), groundMat);
+ground.position.y = -0.12;
+ground.receiveShadow = true;
+root.add(ground);
+
+// Layer 2: instanced blade clumps. A canvas-drawn cluster texture (≈10 curved blades,
+// dark base → light tip, alpha cutout) on two crossed quads per clump. Standard material
+// keeps them lit/shadowed by the real sun; onBeforeCompile adds tip-weighted wind sway.
+function makeBladeTexture() {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 256;
+  const g = c.getContext('2d');
+  const rnd = prng(4242);
+  g.clearRect(0, 0, 256, 256);
+  for (let i = 0; i < 11; i++) {
+    const bx = 24 + rnd() * 208;
+    const lean = (rnd() - 0.5) * 90;
+    const h = 150 + rnd() * 100;
+    const w = 7 + rnd() * 8;
+    const grad = g.createLinearGradient(0, 256, 0, 256 - h);
+    grad.addColorStop(0, `rgb(${38 + rnd() * 14}, ${66 + rnd() * 16}, ${26 + rnd() * 8})`);
+    grad.addColorStop(1, `rgb(${96 + rnd() * 30}, ${140 + rnd() * 26}, ${58 + rnd() * 16})`);
+    g.fillStyle = grad;
+    g.beginPath();
+    g.moveTo(bx - w / 2, 256);
+    g.quadraticCurveTo(bx - w / 4 + lean * 0.4, 256 - h * 0.6, bx + lean, 256 - h);
+    g.quadraticCurveTo(bx + w / 4 + lean * 0.4, 256 - h * 0.6, bx + w / 2, 256);
+    g.closePath(); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = maxAniso;
+  return t;
+}
+const grassWind = { value: 0 };
+(function buildLawn() {
+  const rnd = prng(1234);
+  const COUNT = SOFT_GPU ? 7000 : 45000;
+  const quad = new THREE.PlaneGeometry(0.34, 0.30, 1, 2); quad.translate(0, 0.15, 0);
+  const quad2 = quad.clone().rotateY(Math.PI / 2);
+  const geo = mergeGeometries([quad, quad2]);
+  const mat = new THREE.MeshStandardMaterial({
+    map: makeBladeTexture(), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.95, metalness: 0,
+  });
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = grassWind.uniform = { value: 0 };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        float tip = clamp(position.y / 0.30, 0.0, 1.0);
+        float phase = instanceMatrix[3][0] * 0.9 + instanceMatrix[3][2] * 1.3;
+        float sway = sin(uTime * 1.7 + phase) * 0.05 * tip * tip;
+        transformed.x += sway; transformed.z += sway * 0.55;
+      `);
+  };
+  const inst = new THREE.InstancedMesh(geo, mat, COUNT);
+  inst.receiveShadow = true;
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), s = new THREE.Vector3(), p = new THREE.Vector3();
+  const col = new THREE.Color();
+  let placed = 0;
+  while (placed < COUNT) {
+    const r = Math.sqrt(rnd()) * 34;                       // uniform-by-area disc
+    const ang = rnd() * 6.2832;
+    const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
+    if (x > -8.6 && x < 8.6 && z > -6.4 && z < 8.6) continue;   // house+terrace footprint
+    p.set(x, -0.12, z);
+    e.set(0, rnd() * 6.2832, (rnd() - 0.5) * 0.15); q.setFromEuler(e);
+    const sc = 0.7 + rnd() * 0.6; s.set(sc, sc * (0.8 + rnd() * 0.5), sc);
+    m.compose(p, q, s);
+    inst.setMatrixAt(placed, m);
+    col.setHSL(0.26 + rnd() * 0.03, 0.42 + rnd() * 0.15, 0.30 + rnd() * 0.12);
+    inst.setColorAt(placed, col);
+    placed++;
+  }
+  inst.instanceMatrix.needsUpdate = true;
+  if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+  scene.add(inst);
+})();
 
 // SECTION: house — Task 4 (shell/terrace/pool) and Task 5 (glazing)
 // SECTION: interior — Task 6 (furniture GLTFs + fittings)
@@ -492,6 +582,7 @@ loop((elapsed, dt) => {
   sky.position.copy(camera.position);
   vig.uniforms.uTime.value = elapsed;
   skyUniforms.uTime.value = elapsed;
+  if (grassWind.uniform) grassWind.uniform.value = reducedMotion ? 0 : elapsed;
   composer.render();
 });
 
