@@ -212,9 +212,9 @@ const maxAniso = renderer.capabilities.getMaxAnisotropy();
 const manager = new THREE.LoadingManager();
 const texLoader = new THREE.TextureLoader(manager);
 const gltfLoader = new GLTFLoader(manager);
-// LoadingManager.onLoad only fires once an item has actually been queued (itemStart); this
-// scaffold doesn't call pbr()/loadModel() yet (later tasks do), so track it ourselves and
-// dismiss the loader directly in that case — see the fallback next to onLoad/onError below.
+// LoadingManager.onLoad only fires once an item has actually been queued (itemStart);
+// track it ourselves so we can dismiss the loader directly if nothing ever gets queued —
+// see the fallback next to onLoad/onError below.
 let assetsQueued = false;
 manager.onStart = () => { assetsQueued = true; };
 
@@ -230,23 +230,29 @@ function pbr(name, rx, ry = rx) {
   return { map: tex('diff', true), normalMap: tex('nor_gl', false), roughnessMap: tex('rough', false) };
 }
 
+// shared GLTF post-load pass: shadows on, and foliage cards (alpha-blended in the source
+// files) switched to alpha-tested cutouts — blending sorts badly against dense tree/hedge geo.
+function normalizeGltf(obj) {
+  obj.traverse((o) => {
+    if (o.isMesh) {
+      o.castShadow = true; o.receiveShadow = true;
+      if (o.material && o.material.transparent) {     // leaf/foliage cards → cutout
+        o.material.alphaTest = 0.5; o.material.transparent = false;
+        o.material.side = THREE.DoubleSide; o.material.depthWrite = true;
+      }
+    }
+  });
+}
+
 // Poly Haven GLTFs are real-scale, y-up, origin at floor level.
 function loadModel(path, { scale = 1, x = 0, y = 0, z = 0, ry = 0 } = {}) {
   return new Promise((resolve) => {
     gltfLoader.load(path, (g) => {
       const obj = g.scene;
-      obj.traverse((o) => {
-        if (o.isMesh) {
-          o.castShadow = true; o.receiveShadow = true;
-          if (o.material && o.material.transparent) {     // leaf/foliage cards → cutout
-            o.material.alphaTest = 0.5; o.material.transparent = false;
-            o.material.side = THREE.DoubleSide; o.material.depthWrite = true;
-          }
-        }
-      });
+      normalizeGltf(obj);
       obj.scale.setScalar(scale); obj.position.set(x, y, z); obj.rotation.y = ry;
       root.add(obj); resolve(obj);
-    }, undefined, () => resolve(null));
+    }, undefined, (e) => { console.warn(`[loadModel] failed: ${path}`, e); resolve(null); });
   });
 }
 
@@ -637,20 +643,12 @@ for (const dx of [-0.6, 0, 0.6]) {
 }
 
 // upstairs: low bed silhouette only (barely visible from the eye-level path)
-rbox(2.2, 0.32, 1.8, 0.04, new THREE.MeshStandardMaterial({ color: '#cfc8b8', roughness: 0.95 }), -3.4, 3.55, -2.2);
+rbox(2.2, 0.32, 1.8, 0.04, new THREE.MeshStandardMaterial({ color: '#cfc8b8', roughness: 0.95 }), -3.4, 3.50, -2.2);
 
 // SECTION: garden — photoscanned trees frame the composition; clipped hedges line the terrace.
 gltfLoader.load('./models/island_tree_02/island_tree_02_1k.gltf', (gltf) => {
   const proto = gltf.scene;
-  proto.traverse((o) => {
-    if (o.isMesh) {
-      o.castShadow = true; o.receiveShadow = true;
-      if (o.material && o.material.transparent) {
-        o.material.alphaTest = 0.5; o.material.transparent = false;
-        o.material.side = THREE.DoubleSide; o.material.depthWrite = true;
-      }
-    }
-  });
+  normalizeGltf(proto);
   const bb = new THREE.Box3().setFromObject(proto);
   const height = bb.max.y - bb.min.y;
   // 4 placements: frame the hero views (SE + W), never block the facade
@@ -664,8 +662,8 @@ gltfLoader.load('./models/island_tree_02/island_tree_02_1k.gltf', (gltf) => {
   }
 });
 // clipped hedges flanking the terrace steps
-const hedgeMat = new THREE.MeshStandardMaterial({ color: '#3c5230', roughness: 0.95 });
-for (const hx of [-6.6, 7.6]) rbox(2.8, 0.65, 0.7, 0.16, hedgeMat, hx, -0.12, 8.6);
+const hedgeMat = new THREE.MeshStandardMaterial({ color: '#48633a', roughness: 0.95 });
+for (const hx of [-6.6, 7.6]) rbox(2.6, 0.55, 0.8, 0.05, hedgeMat, hx, -0.12, 8.6);
 
 // ---------------------------------------------------------------- camera rig
 // Eye-level path, always outside the building envelope. South (+z) is the glass side.
