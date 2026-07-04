@@ -348,8 +348,29 @@ sun.target.position.set(0, 1, 0);
 const hemi = new THREE.HemisphereLight('#bcd4ea', '#4a4436', 0.55);
 scene.add(hemi);
 
-// SECTION: practicals — night light fixtures land here in Task 7
+// SECTION: practicals — everything that turns ON as the sun dies. Real lights, no emissive-wall fakes.
 const practicals = { pendants: [], fills: [], eaves: [], pool: null, dayFill: null };
+{
+  const p = new THREE.PointLight('#ffc478', 0, 7, 2);       // pendant cluster over dining
+  p.position.set(3.4, 2.0, 0.6);
+  scene.add(p); practicals.pendants.push(p);
+  for (const [x, y, z] of [[-3.2, 2.3, 0.8], [-3.4, 5.2, -2.0]]) {   // living + bedroom fill
+    const f = new THREE.PointLight('#ffd9a4', 0, 11, 2);
+    f.position.set(x, y, z);
+    scene.add(f); practicals.fills.push(f);
+  }
+  for (const ex of [-4.8, 1.2]) {                            // eave downlights wash the south facade
+    const s = new THREE.SpotLight('#ffdcae', 0, 9, 0.9, 0.5, 1.8);
+    s.position.set(ex, 3.1, 3.6); s.target.position.set(ex, 0, 4.4);
+    scene.add(s, s.target); practicals.eaves.push(s);
+  }
+  const pl = new THREE.PointLight('#6fc3e8', 0, 6, 2);       // pool underwater glow
+  pl.position.set(3.6, 0.3, 6.9);
+  scene.add(pl); practicals.pool = pl;
+  const df = new THREE.PointLight('#fff2e0', 1.2, 14, 2);    // daytime sky-bounce under the roof
+  df.position.set(0, 2.4, 0.5);
+  scene.add(df); practicals.dayFill = df;
+}
 
 // ---------------------------------------------------------------- day → night keyframes
 // hor/zen: sky gradient. sunPos: west-travelling arc (west = -x). pt: practicals 0→1.
@@ -386,7 +407,12 @@ function applyDay(t) {
   renderer.toneMappingExposure = lerp(a.expo, b.expo, k);
   const pt = lerp(a.pt, b.pt, k);
   dayState.pt = pt;
-  // SECTION: applyDay-practicals — intensities wired in Task 7
+  for (const p of practicals.pendants) p.intensity = pt * 6;
+  for (const f of practicals.fills) f.intensity = pt * 9;
+  for (const s of practicals.eaves) s.intensity = pt * 25;
+  practicals.pool.intensity = pt * 12;
+  practicals.dayFill.intensity = 1.2 * (1 - pt);
+  pendantShadeMat.emissiveIntensity = pt * 3.5;
   bloom.strength = 0.12 + pt * 0.5;
 }
 
