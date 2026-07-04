@@ -171,12 +171,13 @@
 
 <script type="module">
 import { THREE, gsap, ScrollTrigger, makeRenderer, makeComposer, attachLifecycle, smoothScroll, loop, onResize, loaderOverlay, reducedMotion, mapClamp } from '../../shared/lib.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 
 const loader = loaderOverlay();
 
@@ -184,89 +185,39 @@ const loader = loaderOverlay();
 const renderer = makeRenderer();
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// AgX instead of lib.js' ACES default: film-like highlight rolloff and it tames
+// saturated greens/oranges — the old lawn read radioactive under ACES.
+renderer.toneMapping = THREE.AgXToneMapping;
+
+// software rasterizer (headless shot harness) → cheaper code paths, same look philosophy
+const _glinfo = (() => {
+  const gl = renderer.getContext();
+  const ext = gl.getExtension('WEBGL_debug_renderer_info');
+  return String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+})();
+const SOFT_GPU = /swiftshader|llvmpipe|software/i.test(_glinfo);
 
 const scene = new THREE.Scene();
-scene.background = null;                       // a real sky dome fills the background, not a flat colour
-scene.fog = new THREE.FogExp2('#3a2415', 0.008);
+scene.background = null;
+scene.fog = new THREE.FogExp2('#cfe0ee', 0.0016);
 
-const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.1, 200);
-camera.position.set(15, 7, 16);
+// 38° ≈ a 50mm lens — the old 58° wide angle distorted the house into a miniature
+const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.1, 260);
 
-// soft image-based lighting so even simple geometry reads as real
-const pmrem = new THREE.PMREMGenerator(renderer);
-scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.5).texture;
-scene.environmentIntensity = 0.55;
+const root = new THREE.Group();
+scene.add(root);
 
-// ---------------------------------------------------------------- sky dome
-// A real dusk sky instead of a flat clear colour: a vertical horizon→zenith
-// gradient, a soft sun glow at the sun's azimuth, and procedural stars that
-// fade in at night. Unlit + fog-exempt, pinned to the camera each frame so its
-// radius never clips. The luminous horizon also lifts the whole scene without
-// touching exposure — the background does the lighting work, not a global gain.
-const skyUniforms = {
-  uHorizon: { value: new THREE.Color('#ffb368') },
-  uZenith:  { value: new THREE.Color('#2c2742') },
-  uSunCol:  { value: new THREE.Color('#ffd9a0') },
-  uSunDir:  { value: new THREE.Vector3(-1, 0.4, 0.8).normalize() },
-  uStars:   { value: 0 },
-  uCloud:   { value: 1 },
-  uTime:    { value: 0 },
-};
-const sky = new THREE.Mesh(
-  new THREE.SphereGeometry(180, 40, 24),
-  new THREE.ShaderMaterial({
-    side: THREE.BackSide, depthWrite: false, fog: false, uniforms: skyUniforms,
-    vertexShader: `
-      varying vec3 vDir;
-      void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-    fragmentShader: /* glsl */`
-      uniform vec3 uHorizon, uZenith, uSunCol, uSunDir;
-      uniform float uStars, uCloud, uTime;
-      varying vec3 vDir;
-      float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-      float noise2(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
-        return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }
-      float fbm2(vec2 p){ float v=0.0, a=0.5; for(int k=0;k<4;k++){ v+=a*noise2(p); p*=2.03; a*=0.5; } return v; }
-      void main(){
-        vec3 dir = normalize(vDir);
-        float h = clamp(dir.y, 0.0, 1.0);
-        vec3 col = mix(uHorizon, uZenith, pow(h, 0.5));
-        // sun glow at the horizon — a wide warm bloom plus a tight disc
-        float sd = max(dot(dir, normalize(uSunDir)), 0.0);
-        col += uSunCol * (pow(sd, 6.0) * 0.5 + pow(sd, 90.0) * 1.1);
-        // bright sliver hugging the horizon line
-        col += uHorizon * exp(-dir.y * dir.y * 40.0) * 0.18;
-        // drifting cumulus banks — the daylight sky must not read as a flat wash
-        if (uCloud > 0.001 && dir.y > 0.02) {
-          vec2 cuv = dir.xz / (dir.y + 0.18) * 1.35;
-          float cl = smoothstep(0.5, 0.74, fbm2(cuv * 0.75 + vec2(uTime * 0.005, 0.0)));
-          float horFade = smoothstep(0.02, 0.22, dir.y);
-          vec3 cloudCol = mix(uHorizon, vec3(1.02, 1.0, 0.97), 0.72) * (0.8 + 0.45 * pow(sd, 2.0));
-          col = mix(col, cloudCol, cl * horFade * uCloud * 0.85);
-        }
-        // procedural stars — upper hemisphere, night only
-        if (uStars > 0.001) {
-          vec2 uv = dir.xz / max(dir.y, 0.10);
-          vec2 g = uv * 90.0;
-          vec2 id = floor(g);
-          vec2 f = fract(g) - 0.5 - (vec2(hash(id + 3.1), hash(id + 6.7)) - 0.5) * 0.7;
-          float s = step(0.986, hash(id)) * smoothstep(0.07, 0.0, length(f)) * (0.5 + 0.5 * hash(id + 9.2));
-          col += vec3(s) * uStars * smoothstep(0.08, 0.45, dir.y);
-        }
-        gl_FragColor = vec4(col, 1.0);
-      }`,
-  })
-);
-sky.renderOrder = -1;
-scene.add(sky);
-
-// ---------------------------------------------------------------- PBR textures (Poly Haven, CC0)
-// Real diffuse/normal/roughness maps lift the big flat surfaces out of "painted box"
-// territory. Tiled via RepeatWrapping; each material's repeat is tuned to the world
-// size of its dominant face. Glass/water/metal/fabric/trees stay procedural.
+// ---------------------------------------------------------------- asset loading
 const maxAniso = renderer.capabilities.getMaxAnisotropy();
 const manager = new THREE.LoadingManager();
 const texLoader = new THREE.TextureLoader(manager);
+const gltfLoader = new GLTFLoader(manager);
+// LoadingManager.onLoad only fires once an item has actually been queued (itemStart); this
+// scaffold doesn't call pbr()/loadModel() yet (later tasks do), so track it ourselves and
+// dismiss the loader directly in that case — see the fallback next to onLoad/onError below.
+let assetsQueued = false;
+manager.onStart = () => { assetsQueued = true; };
+
 function pbr(name, rx, ry = rx) {
   const tex = (suffix, srgb) => {
     const t = texLoader.load(`./textures/${name}_${suffix}_1k.jpg`);
@@ -279,411 +230,213 @@ function pbr(name, rx, ry = rx) {
   return { map: tex('diff', true), normalMap: tex('nor_gl', false), roughnessMap: tex('rough', false) };
 }
 
-// ---------------------------------------------------------------- materials
-const M = {
-  concrete: new THREE.MeshStandardMaterial({ ...pbr('concrete_floor_02', 4), color: '#dcd6ca', roughness: 1, metalness: 0 }),
-  // emissive stays at 0 by day; applyDay() ramps it up after dusk so the interior
-  // surfaces glow and the house reads as a lit lantern through the glass at night.
-  warmWall: new THREE.MeshStandardMaterial({ ...pbr('painted_plaster_wall', 3, 1.2), color: '#eae3d6', roughness: 1, metalness: 0, emissive: '#ffb472', emissiveIntensity: 0 }),
-  floor: new THREE.MeshStandardMaterial({ ...pbr('wood_floor_deck', 4, 3.3), roughness: 1, metalness: 0, emissive: '#ffa050', emissiveIntensity: 0 }),
-  darkFloor: new THREE.MeshStandardMaterial({ color: '#5e4a36', roughness: 0.5, metalness: 0 }),
-  wood: new THREE.MeshStandardMaterial({ color: '#8a5a36', roughness: 0.6, metalness: 0 }),
-  fabric: new THREE.MeshStandardMaterial({ color: '#d3ccbd', roughness: 0.95, metalness: 0 }),
-  rug: new THREE.MeshStandardMaterial({ color: '#c9c2b2', roughness: 1, metalness: 0 }),
-  trim: new THREE.MeshStandardMaterial({ color: '#f2eee4', roughness: 0.6, metalness: 0 }),
-  counter: new THREE.MeshStandardMaterial({ color: '#e8e4da', roughness: 0.3, metalness: 0 }),
-  metal: new THREE.MeshStandardMaterial({ color: '#2a2723', roughness: 0.35, metalness: 0.9 }),
-  glass: new THREE.MeshStandardMaterial({ color: '#b8ccd6', roughness: 0.05, metalness: 0, transparent: true, opacity: 0.12, envMapIntensity: 1.0, side: THREE.DoubleSide }),
-  // procedural mown lawn — the rock/dirt photo texture read as mud under the grass
-  // blades; alternating mowing stripes are the strongest "kept lawn" cue there is
-  ground: new THREE.MeshStandardMaterial({
-    map: (() => {
-      const c = document.createElement('canvas'); c.width = c.height = 1024;
-      const g = c.getContext('2d');
-      g.fillStyle = '#557741'; g.fillRect(0, 0, 1024, 1024);
-      for (let s = 0; s < 10; s++) {                        // mowing stripes
-        g.fillStyle = s % 2 ? 'rgba(255,255,240,0.07)' : 'rgba(20,40,10,0.09)';
-        g.fillRect(s * 102.4, 0, 102.4, 1024);
-      }
-      let a = 97;
-      const rnd = () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-      for (let i = 0; i < 5200; i++) {                      // tonal mottling
-        const r = 3 + rnd() * 14;
-        g.fillStyle = rnd() < 0.5 ? `rgba(210,230,150,${0.02 + rnd() * 0.05})` : `rgba(25,50,15,${0.02 + rnd() * 0.06})`;
-        g.beginPath(); g.arc(rnd() * 1024, rnd() * 1024, r, 0, 7); g.fill();
-      }
-      const t = new THREE.CanvasTexture(c);
-      t.colorSpace = THREE.SRGBColorSpace;
-      t.wrapS = t.wrapT = THREE.RepeatWrapping;
-      t.repeat.set(2, 2);
-      t.anisotropy = maxAniso;
-      return t;
-    })(),
-    roughness: 1, metalness: 0,
-  }),
-  water: new THREE.MeshStandardMaterial({ color: '#1b2733', roughness: 0.08, metalness: 0.4, transparent: true, opacity: 0.85 }),
-  foliage: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 }),
-  trunk: new THREE.MeshStandardMaterial({ color: '#3a2c20', roughness: 0.95 }),
-};
-
-const root = new THREE.Group();
-scene.add(root);
-
-function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-  m.position.set(x, y + h / 2, z);
-  m.castShadow = cast; m.receiveShadow = receive;
-  root.add(m);
-  return m;
-}
-// soft-edged volume — hard box corners are the single biggest "toy model" tell on furniture
-function rbox(w, h, d, r, mat, x, y, z) {
-  const m = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 3, r), mat);
-  m.position.set(x, y + h / 2, z);
-  m.castShadow = true; m.receiveShadow = true;
-  root.add(m);
-  return m;
-}
-
-// ---------------------------------------------------------------- the house
-// Footprint roughly x:[-6,6] z:[-5,5]. Ground floor + a partial upper floor over the north half.
-(function buildHouse() {
-  // ground slab + terrace
-  box(40, 0.2, 40, M.ground, 0, -0.2, 0, { cast: false });
-  box(15, 0.25, 13, M.concrete, -0.5, -0.05, 1, { cast: false });        // terrace pad
-  box(12, 0.12, 10, M.floor, 0, 0.05, 0, { cast: false });               // interior floor GF
-
-  // reflecting pool on the south terrace
-  box(6, 0.06, 3.4, M.water, 3.2, 0.08, 6.4, { cast: false });
-
-  // --- ground-floor structure: mostly glass to the south (+z) and east (+x)
-  // north wall (solid, the "dark" wall the stair hugs)
-  box(12.4, 3.4, 0.25, M.warmWall, 0, 0, -5);
-  // west wall (solid with a long clerestory slot — built as lower + upper band)
-  box(0.25, 2.2, 10, M.warmWall, -6, 0, 0);
-  box(0.25, 0.7, 10, M.warmWall, -6, 2.7, 0);
-  // a couple of slender mullions standing in for the south/east glass plane
-  for (let i = -1; i <= 1; i++) box(0.12, 3.4, 0.12, M.metal, i * 3, 0, 5);
-  for (let i = -1; i <= 1; i++) box(0.12, 3.4, 0.12, M.metal, 6, 0, i * 2.6);
-  // glass planes (south + east) with slim head/sill profiles — frames are what make
-  // glazing read as architecture instead of a ghost plane
-  box(12.4, 3.4, 0.04, M.glass, 0, 0, 5, { cast: false });
-  box(0.04, 3.4, 10, M.glass, 6, 0, 0, { cast: false });
-  box(12.5, 0.09, 0.09, M.metal, 0, 3.36, 5, { cast: false });
-  box(12.5, 0.09, 0.09, M.metal, 0, 0, 5, { cast: false });
-  box(0.09, 0.09, 10.1, M.metal, 6, 3.36, 0, { cast: false });
-  box(0.09, 0.09, 10.1, M.metal, 6, 0, 0, { cast: false });
-
-  // first-floor slab over the north half → double-height living room to the south
-  box(12, 0.25, 5, M.darkFloor, 0, 3.4, -2.5, { receive: true });
-  // upper volume walls
-  box(12.4, 3.0, 0.25, M.warmWall, 0, 3.65, -5);
-  box(0.25, 3.0, 5, M.warmWall, -6, 3.65, -2.5);
-  box(0.25, 3.0, 5, M.warmWall, 6, 3.65, -2.5);
-  box(12.4, 3.0, 0.04, M.glass, 0, 3.65, 0, { cast: false });     // upper glass facing the void/south
-  // roof with overhang + a crisp white fascia band (the modernist edge line).
-  // Matte + env-damped: with the bright RoomEnvironment reflected in it, a smooth
-  // white band read as a glowing LED strip, especially at night.
-  const fascia = new THREE.MeshStandardMaterial({ color: '#ddd8ca', roughness: 0.9, metalness: 0, envMapIntensity: 0.12 });
-  box(13.6, 0.3, 12.5, M.concrete, 0, 6.65, -0.5);
-  box(13.7, 0.14, 12.6, fascia, 0, 6.92, -0.5, { cast: false });
-
-  // stepping-stone path from the terrace out to the lawn
-  for (let i = 0; i < 6; i++) box(1.0, 0.06, 0.7, M.concrete, 1.2 + i * 0.35, -0.02, 8.2 + i * 1.05, { cast: false });
-  // low clipped hedges flanking the terrace
-  for (const hx of [-7.6, 6.9]) rbox(2.6, 0.7, 0.8, 0.18, M.foliage, hx, 0, 7.2);
-
-  // --- stair along the north wall (folded run of treads)
-  const steps = 12;
-  for (let i = 0; i < steps; i++) {
-    box(1.4, 0.18, 0.42, M.wood, 3.2, 0.1 + i * 0.27, -3.4 - i * 0.0 + (i * 0.32) * 0 - 0 + (-2.2 + i * 0.32), { });
-  }
-
-  // --- ground-floor furniture: living commons (south-west), rounded volumes + layered
-  // cushions — furniture reads as designed objects, not stacked boxes
-  box(4.6, 0.03, 3.2, M.rug, -3, 0.12, 2.3, { cast: false });          // area rug
-  rbox(3.3, 0.34, 1.55, 0.07, M.fabric, -3, 0.16, 2.6);                // sofa base
-  for (const dx of [-1.02, 0, 1.02]) rbox(1.0, 0.2, 1.35, 0.07, M.fabric, -3 + dx, 0.5, 2.55);   // seat cushions
-  for (const dx of [-1.02, 0, 1.02]) {
-    const c = rbox(0.98, 0.55, 0.22, 0.08, M.fabric, -3 + dx, 0.62, 3.28);
-    c.rotation.x = -0.12;                                              // reclined back cushions
-  }
-  rbox(0.34, 0.62, 1.5, 0.09, M.fabric, -4.72, 0.16, 2.6);             // arms
-  rbox(0.34, 0.62, 1.5, 0.09, M.fabric, -1.28, 0.16, 2.6);
-  rbox(1.5, 0.09, 0.85, 0.04, M.wood, -3, 0.42, 1.1);                  // coffee table top
-  for (const [lx, lz] of [[-0.6, -0.32], [0.6, -0.32], [-0.6, 0.32], [0.6, 0.32]])
-    box(0.05, 0.42, 0.05, M.metal, -3 + lx, 0, 1.1 + lz);
-  rbox(0.5, 0.1, 0.36, 0.04, M.trim, -3.2, 0.52, 1.05);                // book stack on table
-
-  // dining (south-east): thin top, slender steel legs, real chairs with backs
-  rbox(2.5, 0.07, 1.05, 0.03, M.wood, 3, 0.72, 2.4);
-  for (const dx of [-1.05, 1.05]) for (const dz of [-0.4, 0.4]) box(0.06, 0.72, 0.06, M.metal, 3 + dx, 0, 2.4 + dz);
-  for (const dx of [-0.8, 0, 0.8]) for (const dz of [1.62, 3.18]) {
-    rbox(0.44, 0.06, 0.44, 0.03, M.wood, 3 + dx, 0.44, dz);            // seat
-    for (const [lx, lz] of [[-0.17, -0.17], [0.17, -0.17], [-0.17, 0.17], [0.17, 0.17]])
-      box(0.04, 0.44, 0.04, M.metal, 3 + dx + lx, 0, dz + lz);
-    const back = rbox(0.44, 0.5, 0.05, 0.02, M.wood, 3 + dx, 0.5, dz + (dz < 2.4 ? -0.2 : 0.2));
-    back.rotation.x = dz < 2.4 ? 0.08 : -0.08;
-  }
-  // pendant cluster over the table — fixtures read at day, glow at night via bloom
-  for (const dx of [-0.7, 0, 0.7]) {
-    box(0.02, 1.1 - Math.abs(dx) * 0.3, 0.02, M.metal, 3 + dx, 3.4 - (1.1 - Math.abs(dx) * 0.3), 2.4, { cast: false });
-    const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 0.2, 24), M.metal);
-    shade.position.set(3 + dx, 2.2 + Math.abs(dx) * 0.3, 2.4);
-    shade.castShadow = true; root.add(shade);
-  }
-
-  // kitchen island against the west wall + wall shelf with books
-  rbox(3.0, 0.88, 1.05, 0.03, M.wood, -3.8, 0, -3.6);
-  rbox(3.12, 0.06, 1.15, 0.02, M.counter, -3.8, 0.88, -3.6);           // counter top
-  rbox(0.4, 0.34, 0.28, 0.03, M.counter, -4.6, 0.94, -3.6);            // sink hint
-  for (let s = 0; s < 4; s++) box(2.6, 0.035, 0.26, M.wood, 1.5, 1.15 + s * 0.5, -4.83);  // shelves
-  {
-    const rnd = ((a) => () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; })(31);
-    const bookCols = ['#a34a32', '#4a5d3a', '#33465e', '#b98a4a', '#7a4a5e', '#5e5a4a'];
-    for (let s = 0; s < 4; s++) for (let b = 0; b < 9; b++) {
-      if (rnd() < 0.25) continue;
-      const bw = 0.06 + rnd() * 0.05, bh = 0.26 + rnd() * 0.14;
-      box(bw, bh, 0.2, new THREE.MeshStandardMaterial({ color: bookCols[(s * 9 + b) % 6], roughness: 0.9 }),
-        0.45 + b * 0.26 + rnd() * 0.06, 1.19 + s * 0.5, -4.82, { cast: false });
-    }
-  }
-  // framed art on the north wall
-  for (const [ax, aw, ah] of [[-1.4, 1.1, 1.4], [0.2, 0.7, 0.9]]) {
-    box(aw, ah, 0.05, M.trim, ax, 1.5, -4.86, { cast: false });
-    box(aw - 0.12, ah - 0.12, 0.02, M.darkFloor, ax, 1.56, -4.83, { cast: false });
-  }
-
-  // --- upper-floor furniture: bedroom (north-west, on the slab)
-  rbox(2.7, 0.28, 2.1, 0.05, M.wood, -3, 3.68, -3);                    // bed frame
-  rbox(2.5, 0.24, 1.9, 0.09, M.trim, -3, 3.96, -3);                    // mattress
-  rbox(2.5, 0.16, 0.8, 0.07, M.fabric, -3, 4.14, -2.55);               // folded duvet
-  for (const px of [-0.55, 0.55]) rbox(0.8, 0.14, 0.45, 0.06, M.trim, -3 + px, 4.2, -3.7);  // pillows
-  rbox(2.7, 0.5, 0.08, 0.03, M.wood, -3, 3.9, -3.98);                  // headboard
-  for (const nx of [-4.6, -1.4]) rbox(0.5, 0.4, 0.4, 0.03, M.wood, nx, 3.68, -3.8);         // nightstands
-
-  // --- trees: a photoscanned CC0 model (Poly Haven island_tree_02) replaces the old
-  // faceted low-poly crowns — the single element that most betrayed "3D demo".
-  new GLTFLoader(manager).load('./models/island_tree_02/island_tree_02_1k.gltf', (gltf) => {
-    const proto = gltf.scene;
-    proto.traverse((o) => {
-      if (o.isMesh) {
-        o.castShadow = true; o.receiveShadow = true;
-        // leaf cards: cutout alpha + double side, or the canopy renders as glass slabs
-        if (o.material && o.material.transparent) {
-          o.material.alphaTest = 0.5;
-          o.material.transparent = false;
-          o.material.side = THREE.DoubleSide;
-          o.material.depthWrite = true;
+// Poly Haven GLTFs are real-scale, y-up, origin at floor level.
+function loadModel(path, { scale = 1, x = 0, y = 0, z = 0, ry = 0 } = {}) {
+  return new Promise((resolve) => {
+    gltfLoader.load(path, (g) => {
+      const obj = g.scene;
+      obj.traverse((o) => {
+        if (o.isMesh) {
+          o.castShadow = true; o.receiveShadow = true;
+          if (o.material && o.material.transparent) {     // leaf/foliage cards → cutout
+            o.material.alphaTest = 0.5; o.material.transparent = false;
+            o.material.side = THREE.DoubleSide; o.material.depthWrite = true;
+          }
         }
-      }
-    });
-    const bb = new THREE.Box3().setFromObject(proto);
-    const height = bb.max.y - bb.min.y;
-    // pushed out past the lawn ring — the scan has a WIDE canopy; at the old close-in
-    // positions it swallowed the house instead of framing it
-    for (const [tx, tz, s, seed] of [[-13, 10, 0.9, 0.17], [13, -9, 1.05, 0.61], [-15, -6, 0.8, 0.39],
-                                      [15, 7, 0.95, 0.83], [-18, 13, 0.7, 0.07], [18, -3, 0.85, 0.52]]) {
-      const t = proto.clone();
-      const k = (6.5 * s) / height;                       // target height ≈ 5–9 m
-      t.scale.set(k, k, k);
-      t.position.set(tx, -bb.min.y * k, tz);
-      t.rotation.y = seed * 6.28;
-      root.add(t);
-    }
+      });
+      obj.scale.setScalar(scale); obj.position.set(x, y, z); obj.rotation.y = ry;
+      root.add(obj); resolve(obj);
+    }, undefined, () => resolve(null));
   });
-})();
+}
 
-// ---------------------------------------------------------------- instanced grass
-// The single biggest ground-realism lever: ~14k wind-swayed blades replace the flat
-// texture read. ShaderMaterial → instanceMatrix applied manually (02's lesson).
-const grassUniforms = { uTime: { value: 0 }, uNight: { value: 0 } };
-(function buildGrass() {
-  const rnd = ((a) => () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; })(1234);
-  const COUNT = 26000;
-  const geo = new THREE.PlaneGeometry(0.045, 0.22, 1, 2);   // lawn, not reeds
-  geo.translate(0, 0.11, 0);
-  const mat = new THREE.ShaderMaterial({
-    side: THREE.DoubleSide,
-    uniforms: grassUniforms,
-    vertexShader: `
-      uniform float uTime;
-      varying float vH; varying float vShade;
-      void main(){
-        vH = position.y / 0.22;
-        vec4 local = vec4(position, 1.0);
-        vShade = fract(instanceMatrix[3][0] * 0.43 + instanceMatrix[3][2] * 0.71);
-        // wind: bend increases toward the tip, phase varies per blade position
-        float sway = sin(uTime * 1.6 + instanceMatrix[3][0] * 0.8 + instanceMatrix[3][2] * 1.1) * 0.05 * vH * vH;
-        local.x += sway; local.z += sway * 0.6;
-        vec4 w = modelMatrix * instanceMatrix * local;
-        gl_Position = projectionMatrix * viewMatrix * w;
-      }`,
-    fragmentShader: `
-      uniform float uNight;
-      varying float vH; varying float vShade;
-      void main(){
-        // rooted in the lawn's own palette so blades blend into the ground read
-        vec3 base = mix(vec3(0.16, 0.27, 0.10), vec3(0.42, 0.58, 0.25), vH);
-        base *= 0.88 + vShade * 0.24;
-        base *= mix(1.0, 0.2, uNight);   // unlit shader — must follow the day into darkness
-        gl_FragColor = vec4(base, 1.0);
-      }`,
-  });
-  const inst = new THREE.InstancedMesh(geo, mat, COUNT);
-  inst.receiveShadow = true;
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), s = new THREE.Vector3(), p = new THREE.Vector3();
-  let placed = 0;
-  while (placed < COUNT) {
-    const x = (rnd() - 0.5) * 38, z = (rnd() - 0.5) * 38;
-    if (x > -8.2 && x < 8.2 && z > -6.2 && z < 7.8) continue;   // house + terrace footprint
-    if (x > 0 && x < 6.6 && z > 4.6 && z < 8.4) continue;       // pool
-    p.set(x, 0, z);
-    e.set((rnd() - 0.5) * 0.12, rnd() * 6.28, (rnd() - 0.5) * 0.12); q.setFromEuler(e);
-    const sc = 0.65 + rnd() * 0.5; s.set(sc, sc, sc);
-    m.compose(p, q, s);
-    inst.setMatrixAt(placed++, m);
-  }
-  inst.instanceMatrix.needsUpdate = true;
-  scene.add(inst);
-})();
+// deterministic PRNG — Math.random() would reshuffle the lawn/books every reload
+const prng = (a) => () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+
+// ---------------------------------------------------------------- sky dome (visual + light source)
+const skyUniforms = {
+  uHorizon: { value: new THREE.Color('#dbe9f4') },
+  uZenith:  { value: new THREE.Color('#4a7fd4') },
+  uSunCol:  { value: new THREE.Color('#fff6e6') },
+  uSunDir:  { value: new THREE.Vector3(-1, 0.5, 0.6).normalize() },
+  uStars:   { value: 0 },
+  uCloud:   { value: 1 },
+  uTime:    { value: 0 },
+};
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, fog: false, uniforms: skyUniforms,
+  vertexShader: `
+    varying vec3 vDir;
+    void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */`
+    uniform vec3 uHorizon, uZenith, uSunCol, uSunDir;
+    uniform float uStars, uCloud, uTime;
+    varying vec3 vDir;
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float noise2(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+      return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }
+    float fbm2(vec2 p){ float v=0.0, a=0.5; for(int k=0;k<5;k++){ v+=a*noise2(p); p*=2.03; a*=0.5; } return v; }
+    void main(){
+      vec3 dir = normalize(vDir);
+      float h = clamp(dir.y, 0.0, 1.0);
+      vec3 col = mix(uHorizon, uZenith, pow(h, 0.42));
+      float sd = max(dot(dir, normalize(uSunDir)), 0.0);
+      col += uSunCol * (pow(sd, 8.0) * 0.35 + pow(sd, 350.0) * 3.0);   // haze + tight disc
+      col += uHorizon * exp(-dir.y * dir.y * 60.0) * 0.12;             // horizon sliver
+      if (uCloud > 0.001 && dir.y > 0.015) {
+        vec2 cuv = dir.xz / (dir.y + 0.16) * 1.2;
+        float base = fbm2(cuv * 0.6 + vec2(uTime * 0.004, 0.0));
+        float cl = smoothstep(0.52, 0.78, base);
+        float horFade = smoothstep(0.015, 0.2, dir.y);
+        // lit and shadowed side of the cumulus — flat white blobs read painted
+        vec3 lit = mix(uHorizon, vec3(1.04, 1.02, 0.99), 0.8) * (0.85 + 0.5 * pow(sd, 2.0));
+        vec3 shade = mix(uZenith, uHorizon, 0.5) * 0.9;
+        float inner = smoothstep(0.6, 0.95, base);
+        col = mix(col, mix(lit, shade, inner * 0.55), cl * horFade * uCloud * 0.9);
+      }
+      if (uStars > 0.001) {
+        vec2 uv = dir.xz / max(dir.y, 0.10);
+        vec2 g = uv * 90.0;
+        vec2 id = floor(g);
+        vec2 f = fract(g) - 0.5 - (vec2(hash(id + 3.1), hash(id + 6.7)) - 0.5) * 0.7;
+        float s = step(0.986, hash(id)) * smoothstep(0.05, 0.0, length(f)) * (0.4 + 0.6 * hash(id + 9.2));
+        col += vec3(s) * uStars * smoothstep(0.06, 0.4, dir.y);
+      }
+      gl_FragColor = vec4(col, 1.0);
+    }`,
+});
+const sky = new THREE.Mesh(new THREE.SphereGeometry(220, 48, 28), skyMat);
+sky.renderOrder = -1;
+scene.add(sky);
+
+// live IBL: a second dome sharing skyMat lives in its own scene; PMREM-bake it
+// (throttled) so ambient light/reflections track the exact sky of the moment —
+// blue-ish GI at noon, amber at golden hour, near-black at night.
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envScene = new THREE.Scene();
+envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 24, 16), skyMat));
+let envRT = null, lastEnvT = -9;
+const ENV_STEP = SOFT_GPU ? 0.10 : 0.03;
+function bakeEnv(t) {
+  if (envRT && Math.abs(t - lastEnvT) < ENV_STEP) return;
+  lastEnvT = t;
+  const old = envRT;
+  envRT = pmrem.fromScene(envScene, 0.05);
+  scene.environment = envRT.texture;
+  if (old) old.dispose();
+}
 
 // ---------------------------------------------------------------- lights
-const sun = new THREE.DirectionalLight('#ffd9a0', 3.2);
+const sun = new THREE.DirectionalLight('#fff6e6', 4.2);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.near = 1; sun.shadow.camera.far = 70;
-sun.shadow.camera.left = -20; sun.shadow.camera.right = 20;
-sun.shadow.camera.top = 20; sun.shadow.camera.bottom = -20;
-sun.shadow.bias = -0.0004;
-sun.shadow.radius = 5;         // soften — razor-sharp shadow edges read CG, not photo
+sun.shadow.mapSize.set(SOFT_GPU ? 1024 : 4096, SOFT_GPU ? 1024 : 4096);
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 80;
+sun.shadow.camera.left = -17; sun.shadow.camera.right = 17;
+sun.shadow.camera.top = 17; sun.shadow.camera.bottom = -17;
+sun.shadow.bias = -0.0003;
+sun.shadow.normalBias = 0.02;
+sun.shadow.radius = 4;
 scene.add(sun, sun.target);
+sun.target.position.set(0, 1, 0);
 
-const ambient = new THREE.HemisphereLight('#b89878', '#14110c', 0.35);
-scene.add(ambient);
+const hemi = new THREE.HemisphereLight('#bcd4ea', '#4a4436', 0.55);
+scene.add(hemi);
 
-// daylight interior fill — fakes sky bounce under the deep roof overhang so the
-// living space doesn't sink into mud while the sun is up
-const fill = new THREE.PointLight('#fff2e2', 1.3, 16, 2);
-fill.position.set(0, 2.6, 0.8);
-scene.add(fill);
-
-// interior lights that come on at night
-const interiorLights = [];
-for (const [x, y, z] of [[-3, 2.4, 2], [3, 2.4, 2], [-3, 4.6, -3], [0, 2.0, -3.5]]) {
-  const p = new THREE.PointLight('#ffca7a', 0, 12, 2);
-  p.position.set(x, y, z);
-  scene.add(p);
-  interiorLights.push(p);
-  // little fixture
-  box(0.16, 0.16, 0.16, M.metal, x, y - 0.08, z, { cast: false });
-}
-
-// ---------------------------------------------------------------- dust motes in the light
-function makeDotTexture() {
-  const c = document.createElement('canvas'); c.width = c.height = 64;
-  const g = c.getContext('2d');
-  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grad.addColorStop(0, 'rgba(255,255,255,1)');
-  grad.addColorStop(0.35, 'rgba(255,255,255,0.45)');
-  grad.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
-}
-const dustCount = 380;
-const dustGeo = new THREE.BufferGeometry();
-const dpos = new Float32Array(dustCount * 3);
-for (let i = 0; i < dustCount; i++) {
-  dpos[i * 3] = (Math.random() - 0.5) * 13;
-  dpos[i * 3 + 1] = 0.3 + Math.random() * 5.6;
-  dpos[i * 3 + 2] = -4 + Math.random() * 11;
-}
-dustGeo.setAttribute('position', new THREE.BufferAttribute(dpos, 3));
-const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({
-  color: '#ffe0b0', size: 0.07, map: makeDotTexture(), transparent: true, opacity: 0.28,
-  depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true,
-}));
-scene.add(dust);
-
-// ---------------------------------------------------------------- camera rig (two curves: eye + target)
-// an elegant orbit that keeps the readable house in frame as the day passes,
-// brushes past the open glass front (a hint of going through), and ends on the
-// night-lit house glowing from within.
-const eye = new THREE.CatmullRomCurve3([
-  new THREE.Vector3(15, 7, 16), new THREE.Vector3(17, 4.5, 7), new THREE.Vector3(12, 3, 11),
-  new THREE.Vector3(4, 4.5, 12.5), new THREE.Vector3(-3, 9, 9), new THREE.Vector3(-13, 5, 6),
-  new THREE.Vector3(-11, 3.5, 11), new THREE.Vector3(2, 4, 16), new THREE.Vector3(14, 4.5, 16),
-]);
-const aim = new THREE.CatmullRomCurve3([
-  new THREE.Vector3(0, 2.5, 0), new THREE.Vector3(0, 2.2, 0), new THREE.Vector3(-2, 2, 2),
-  new THREE.Vector3(-1, 2.6, -1), new THREE.Vector3(-1, 3, -2), new THREE.Vector3(0, 2.5, -1),
-  new THREE.Vector3(-1, 2, 1), new THREE.Vector3(-1, 2.2, 0), new THREE.Vector3(0, 2.2, 0),
-]);
+// SECTION: practicals — night light fixtures land here in Task 7
+const practicals = { pendants: [], fills: [], eaves: [], pool: null, dayFill: null };
 
 // ---------------------------------------------------------------- day → night keyframes
-// hor/zen = sky-dome horizon & zenith colours; fog colour follows the horizon.
-// The arc now STARTS as a bright, clear afternoon (archviz daylight — white sun,
-// blue sky, drifting clouds) and only then rolls through golden hour into night.
-// The old version opened deep in golden hour, which read as a flat orange wash.
+// hor/zen: sky gradient. sunPos: west-travelling arc (west = -x). pt: practicals 0→1.
+// envI: PMREM environment intensity. expo: AgX exposure trim.
 const stops = [
-  { at: 0.00, hor: '#cde0ef', zen: '#4d82d6', sun: '#fff3dc', sunI: 3.6, ambI: 0.9,  pt: 0.0,  fog: 0.0022, expo: 1.1,  stars: 0.0, cloud: 1.0,  sunPos: [-8, 13, 13] },
-  { at: 0.38, hor: '#f0d6a8', zen: '#3d6cba', sun: '#ffe2b4', sunI: 3.1, ambI: 0.72, pt: 0.0,  fog: 0.004,  expo: 1.05, stars: 0.0, cloud: 0.85, sunPos: [-14, 7, 12] },
-  { at: 0.62, hor: '#ff9a52', zen: '#2c2f52', sun: '#ffab5e', sunI: 2.2, ambI: 0.5,  pt: 0.06, fog: 0.007,  expo: 0.98, stars: 0.0, cloud: 0.5,  sunPos: [-20, 3.5, 4] },
-  { at: 0.78, hor: '#9a6678', zen: '#171b30', sun: '#8a93c4', sunI: 0.7, ambI: 0.42, pt: 0.55, fog: 0.011,  expo: 0.94, stars: 0.5, cloud: 0.22, sunPos: [-13, 1.5, -9] },
-  { at: 1.00, hor: '#15203c', zen: '#05070f', sun: '#3b4a86', sunI: 0.14, ambI: 0.36, pt: 1.0, fog: 0.015,  expo: 1.0,  stars: 1.0, cloud: 0.1,  sunPos: [-8, -1, -14] },
+  { at: 0.00, hor: '#dbe9f4', zen: '#4a7fd4', sun: '#fff6e6', sunI: 4.2, hemiI: 0.55, envI: 0.85, pt: 0.00, fog: 0.0016, expo: 1.15, stars: 0.0,  cloud: 1.0,  sunPos: [-14, 18, 10] },
+  { at: 0.35, hor: '#eed9ac', zen: '#3f6fbe', sun: '#ffe7bd', sunI: 3.4, hemiI: 0.45, envI: 0.75, pt: 0.00, fog: 0.0030, expo: 1.08, stars: 0.0,  cloud: 0.8,  sunPos: [-20, 10, 9] },
+  { at: 0.60, hor: '#ff9e58', zen: '#2e3560', sun: '#ffb066', sunI: 2.4, hemiI: 0.32, envI: 0.60, pt: 0.12, fog: 0.0060, expo: 1.00, stars: 0.0,  cloud: 0.45, sunPos: [-24, 4, 2] },
+  { at: 0.80, hor: '#8e5f7a', zen: '#141a33', sun: '#7f8ec2', sunI: 0.6, hemiI: 0.22, envI: 0.38, pt: 0.60, fog: 0.0090, expo: 0.95, stars: 0.45, cloud: 0.2,  sunPos: [-16, 1.2, -8] },
+  { at: 1.00, hor: '#0f1830', zen: '#04060d', sun: '#3c4c8a', sunI: 0.1, hemiI: 0.15, envI: 0.24, pt: 1.00, fog: 0.0120, expo: 1.00, stars: 1.0,  cloud: 0.08, sunPos: [-8, -2, -12] },
 ];
-const _cA = new THREE.Color(), _cB = new THREE.Color(), _c = new THREE.Color();
+const _cA = new THREE.Color(), _cB = new THREE.Color();
 const lerp = (a, b, t) => a + (b - a) * t;
+const lerpCol = (target, a, b, k) => { _cA.set(a); _cB.set(b); target.copy(_cA).lerp(_cB, k); };
+let dayState = { pt: 0 };
 function applyDay(t) {
   let i = 0; while (i < stops.length - 2 && t > stops[i + 1].at) i++;
   const a = stops[i], b = stops[i + 1];
   const k = mapClamp(t, a.at, b.at, 0, 1);
-  // sky gradient + fog colour track the horizon; zenith and stars cross-fade too
-  _cA.set(a.hor); _cB.set(b.hor); _c.copy(_cA).lerp(_cB, k);
-  skyUniforms.uHorizon.value.copy(_c); scene.fog.color.copy(_c);
-  _cA.set(a.zen); _cB.set(b.zen); skyUniforms.uZenith.value.copy(_cA.lerp(_cB, k));
+  lerpCol(skyUniforms.uHorizon.value, a.hor, b.hor, k);
+  scene.fog.color.copy(skyUniforms.uHorizon.value);
+  lerpCol(skyUniforms.uZenith.value, a.zen, b.zen, k);
+  lerpCol(sun.color, a.sun, b.sun, k);
+  skyUniforms.uSunCol.value.copy(sun.color);
   skyUniforms.uStars.value = lerp(a.stars, b.stars, k);
   skyUniforms.uCloud.value = lerp(a.cloud, b.cloud, k);
   scene.fog.density = lerp(a.fog, b.fog, k);
-  _cA.set(a.sun); _cB.set(b.sun); sun.color.copy(_cA.lerp(_cB, k));
-  skyUniforms.uSunCol.value.copy(sun.color);
   sun.intensity = lerp(a.sunI, b.sunI, k);
   sun.position.set(lerp(a.sunPos[0], b.sunPos[0], k), lerp(a.sunPos[1], b.sunPos[1], k), lerp(a.sunPos[2], b.sunPos[2], k));
   skyUniforms.uSunDir.value.copy(sun.position).normalize();
-  ambient.intensity = lerp(a.ambI, b.ambI, k);
-  const pt = lerp(a.pt, b.pt, k);
-  for (const p of interiorLights) p.intensity = pt * 10;     // real room fill once the sun is gone
-  fill.intensity = 1.3 * (1 - pt);                           // day bounce hands over to the lamps
-  M.warmWall.emissiveIntensity = pt * 0.3;                   // surfaces self-glow → bloom → lantern
-  grassUniforms.uNight.value = pt;
-  M.floor.emissiveIntensity = pt * 0.30;
+  hemi.intensity = lerp(a.hemiI, b.hemiI, k);
+  hemi.color.copy(skyUniforms.uZenith.value).lerp(skyUniforms.uHorizon.value, 0.5);
+  scene.environmentIntensity = lerp(a.envI, b.envI, k);
   renderer.toneMappingExposure = lerp(a.expo, b.expo, k);
-  bloom.strength = 0.18 + pt * 0.55;
-  dust.material.opacity = 0.12 + (1 - pt) * 0.2;
+  const pt = lerp(a.pt, b.pt, k);
+  dayState.pt = pt;
+  // SECTION: applyDay-practicals — intensities wired in Task 7
+  bloom.strength = 0.12 + pt * 0.5;
 }
 
-// ---------------------------------------------------------------- post: bloom + vignette/grain
+// ---------------------------------------------------------------- world
+// SECTION: ground — placeholder plane; Task 3 replaces with the layered lawn
+const groundPlaceholder = new THREE.Mesh(
+  new THREE.CircleGeometry(60, 48).rotateX(-Math.PI / 2),
+  new THREE.MeshStandardMaterial({ color: '#5b7a45', roughness: 1 })
+);
+groundPlaceholder.position.y = -0.12;
+groundPlaceholder.receiveShadow = true;
+root.add(groundPlaceholder);
+
+// SECTION: house — Task 4 (shell/terrace/pool) and Task 5 (glazing)
+// SECTION: interior — Task 6 (furniture GLTFs + fittings)
+// SECTION: garden — Task 6 (trees, hedges, path)
+
+// ---------------------------------------------------------------- camera rig
+// Eye-level path, always outside the building envelope. South (+z) is the glass side.
+const eye = new THREE.CatmullRomCurve3([
+  new THREE.Vector3( 17, 1.9, 15),   // t 0.00 SE hero, sunny afternoon
+  new THREE.Vector3(  8, 1.7, 17),   //   dolly west along the south facade
+  new THREE.Vector3(  2.5, 1.6, 12), //   approach the terrace
+  new THREE.Vector3( -2, 1.5, 9.5),  //   pool close-up, golden hour begins
+  new THREE.Vector3(-10, 2.2, 12),   //   SW corner arc
+  new THREE.Vector3(-14, 2.6, 4),    //   west elevation, sun backlights the house
+  new THREE.Vector3( -4, 2.4, 16),   //   swing back to frontal south, dusk
+  new THREE.Vector3( 13, 3.0, 19),   // t 1.00 wide night hero
+]);
+const aim = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(0, 1.8, 0), new THREE.Vector3(-1, 1.7, 1), new THREE.Vector3(-2, 1.5, 2),
+  new THREE.Vector3(0, 1.2, 5),                                  // down at the pool
+  new THREE.Vector3(-1, 2.0, 0), new THREE.Vector3(-1, 3.2, -1), // up at the upper volume
+  new THREE.Vector3(0, 1.9, 0), new THREE.Vector3(0, 2.2, 0),
+]);
+
+// ---------------------------------------------------------------- post
 const composer = makeComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.3, 0.5, 0.9);
+// SECTION: gtao — Task 8 inserts GTAOPass here (hardware GPUs only)
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.12, 0.6, 0.85);
 composer.addPass(bloom);
-
 const VignetteGrain = {
-  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uVig: { value: 1.05 }, uGrain: { value: 0.05 } },
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uVig: { value: 1.0 }, uGrain: { value: 0.045 } },
   vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
   fragmentShader: /* glsl */`
     uniform sampler2D tDiffuse; uniform float uTime, uVig, uGrain; varying vec2 vUv;
     float rand(vec2 c){ return fract(sin(dot(c, vec2(12.9898,78.233))) * 43758.5453); }
     void main(){
       vec3 col = texture2D(tDiffuse, vUv).rgb;
-      // gentle photographic grade: a touch of saturation + contrast keeps daylight
-      // from reading flat/milky without pushing it into "filter" territory
       float luma = dot(col, vec3(0.299, 0.587, 0.114));
-      col = mix(vec3(luma), col, 1.12);
-      col = (col - 0.5) * 1.05 + 0.5;
+      col = mix(vec3(luma), col, 1.06);            // AgX desaturates — give a little back
+      col = (col - 0.5) * 1.03 + 0.5;
       vec2 d = vUv - 0.5;
-      float vig = smoothstep(0.95, 0.25, dot(d, d) * uVig * 2.2);
-      col *= mix(0.74, 1.0, vig);   // gentle — a heavy vignette reads moody, not professional
+      float vig = smoothstep(0.95, 0.3, dot(d, d) * uVig * 2.0);
+      col *= mix(0.8, 1.0, vig);
       col += (rand(vUv + uTime) - 0.5) * uGrain;
       gl_FragColor = vec4(col, 1.0);
     }`,
@@ -691,23 +444,20 @@ const VignetteGrain = {
 const vig = new ShaderPass(VignetteGrain);
 composer.addPass(vig);
 
-// ---------------------------------------------------------------- scroll
+// ---------------------------------------------------------------- scroll wiring (unchanged concept)
 smoothScroll({ lerp: 0.08 });
 const state = { t: 0 };
 const marker = document.querySelector('.hours .marker');
 const nowLabel = document.querySelector('.hours .now');
 const fmtHour = (t) => { const m = Math.round(lerp(14 * 60 + 30, 21 * 60, t)); return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
-
 ScrollTrigger.create({
   trigger: '.scroll', start: 'top top', end: 'bottom bottom', scrub: 1,
   onUpdate: (self) => {
     state.t = self.progress;
-    if (marker) { marker.style.top = `${self.progress * 100}%`; }
+    if (marker) marker.style.top = `${self.progress * 100}%`;
     if (nowLabel) { nowLabel.style.top = `${self.progress * 100}%`; nowLabel.textContent = fmtHour(self.progress); }
   },
 });
-
-// panel reveals
 if (!reducedMotion) {
   gsap.utils.toArray('.panel .inner').forEach((el) => {
     gsap.from(el, { opacity: 0, y: 42, duration: 1, ease: 'power2.out',
@@ -715,7 +465,7 @@ if (!reducedMotion) {
   });
 }
 
-// ---------------------------------------------------------------- resize + render
+// ---------------------------------------------------------------- resize + render loop
 function resize(w, h) {
   camera.aspect = w / h; camera.updateProjectionMatrix();
   renderer.setSize(w, h); composer.setSize(w, h);
@@ -726,34 +476,29 @@ attachLifecycle(renderer, scene, composer);
 
 const _p = new THREE.Vector3(), _a = new THREE.Vector3();
 applyDay(0);
+bakeEnv(0);
 eye.getPointAt(0, camera.position);
 aim.getPointAt(0, _a); camera.lookAt(_a);
 
+// SECTION: loop-uniforms — per-frame uniform updates (grass wind lands here in Task 3)
 loop((elapsed, dt) => {
   const t = state.t;
   eye.getPointAt(t, _p);
-  // frame-rate-independent smoothing (same pattern as 03-solar-journey): settles the same
-  // whether the frame budget is 60fps or the ~12fps of headless/SwiftShader screenshot runs.
-  // k=7.7 matches the old fixed per-frame factor (0.12) at 60fps: 1-exp(-7.7/60)≈0.12.
-  camera.position.lerp(_p, 1 - Math.exp(-7.7 * dt));
+  camera.position.lerp(_p, 1 - Math.exp(-7.7 * dt));   // frame-rate-independent settle
   aim.getPointAt(t, _a);
   camera.lookAt(_a);
   applyDay(t);
-  sky.position.copy(camera.position);          // keep the dome centred on the eye so it never clips
-  sun.target.position.set(0, 1.5, 0);
-  // drifting dust
-  dust.rotation.y = elapsed * 0.012;
-  dust.position.y = Math.sin(elapsed * 0.2) * 0.15;
+  bakeEnv(t);
+  sky.position.copy(camera.position);
   vig.uniforms.uTime.value = elapsed;
   skyUniforms.uTime.value = elapsed;
-  grassUniforms.uTime.value = reducedMotion ? 0 : elapsed;
   composer.render();
 });
 
-// reveal once textures have decoded (or fail gracefully)
 manager.onProgress = (_url, n, total) => loader.set(total ? n / total : 1);
 manager.onLoad = () => { loader.set(1); setTimeout(() => loader.done(), 350); };
 manager.onError = () => { loader.set(1); setTimeout(() => loader.done(), 350); };
+if (!assetsQueued) loader.done();
 </script>
 </body>
 </html>
