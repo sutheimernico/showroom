@@ -485,7 +485,81 @@ const grassWind = { value: 0 };
   scene.add(inst);
 })();
 
-// SECTION: house — Task 4 (shell/terrace/pool) and Task 5 (glazing)
+// SECTION: house
+const M = {
+  plaster: new THREE.MeshStandardMaterial({ ...pbr('painted_plaster_wall', 3, 1.4), color: '#e6e1d6', roughness: 1 }),
+  concrete: new THREE.MeshStandardMaterial({ ...pbr('concrete_floor_02', 3), color: '#c9c4ba', roughness: 1 }),
+  pavers: new THREE.MeshStandardMaterial({ ...pbr('patterned_concrete_pavers_03', 5, 2.2), color: '#d8d4cc', roughness: 1 }),
+  woodFloor: new THREE.MeshStandardMaterial({ ...pbr('wood_floor_deck', 9, 6), color: '#e8ddca', roughness: 0.85 }),
+  fascia: new THREE.MeshStandardMaterial({ color: '#3f3b35', roughness: 0.85, metalness: 0, envMapIntensity: 0.1 }),
+  soffit: new THREE.MeshStandardMaterial({ color: '#ece7db', roughness: 0.95, envMapIntensity: 0.15 }),
+  steel: new THREE.MeshStandardMaterial({ color: '#26241f', roughness: 0.45, metalness: 0.85 }),
+  innerWall: new THREE.MeshStandardMaterial({ color: '#efeae0', roughness: 0.97 }),
+  darkStone: new THREE.MeshStandardMaterial({ color: '#2b2e30', roughness: 0.4, metalness: 0.05 }),
+};
+function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y + h / 2, z);
+  m.castShadow = cast; m.receiveShadow = receive;
+  root.add(m);
+  return m;
+}
+
+(function buildShell() {
+  const T = 0.28;                                  // wall thickness — the anti-cardboard number
+  // plinth + floor slabs: house sits ON something, not in the grass
+  box(13.2, 0.35, 9.2, M.concrete, 0, -0.35, 0);                       // plinth, proud of the lawn
+  box(12.4, 0.12, 8.4, M.woodFloor, 0, -0.02, 0, { cast: false });     // GF interior floor
+  // north wall (solid) + west wall (solid, clerestory slot)
+  box(12.8, 3.2, T, M.plaster, 0, 0, -4 - T / 2);
+  box(T, 2.3, 8, M.plaster, -6.2 - T / 2, 0, 0);
+  box(T, 0.55, 8, M.plaster, -6.2 - T / 2, 2.65, 0);
+  // east wall: solid with a big recessed opening (reveal depth = T)
+  box(T, 3.2, 2.6, M.plaster, 6.2 + T / 2, 0, -2.7);
+  box(T, 3.2, 1.6, M.plaster, 6.2 + T / 2, 0, 3.2);
+  box(T, 0.5, 8, M.plaster, 6.2 + T / 2, 2.7, 0);                      // header band
+  // south facade: slim structural piers between full-height glass bays
+  for (const px of [-6.2, -2.1, 2.1, 6.2]) box(0.24, 3.2, 0.24, M.steel, px, 0, 4 + 0.12);
+  // interior core wall (kitchen back) + stair spine
+  box(4.6, 3.2, 0.18, M.innerWall, -3.4, 0, -1.6);
+  // upper volume over the west half, slightly cantilevered west
+  box(7.4, 0.3, 8.4, M.concrete, -2.8, 3.2, 0);                        // first-floor slab edge visible
+  box(7.4, 2.7, T, M.plaster, -2.8, 3.5, -4 - T / 2);
+  // upper south wall as ribbon window: sill + header + two end piers (glass comes in Task 5)
+  box(7.4, 0.7, T, M.plaster, -2.8, 3.5, 2.2);                         // sill band
+  box(7.4, 0.6, T, M.plaster, -2.8, 5.6, 2.2);                         // header band
+  box(0.5, 1.4, T, M.plaster, -6.0, 4.2, 2.2);                          // end pier west
+  box(0.5, 1.4, T, M.plaster, 0.4, 4.2, 2.2);                           // end pier east
+  box(T, 2.7, 6.2 + T, M.plaster, -6.5 - T / 2, 3.5, -0.9 + T / 2);
+  box(T, 2.7, 6.2 + T, M.plaster, 0.9 + T / 2, 3.5, -0.9 + T / 2);
+  // roof slab + dark fascia + light soffit under the overhang
+  box(9.2, 0.3, 10.2, M.concrete, -2.8, 6.2, -0.3);
+  box(9.3, 0.18, 10.3, M.fascia, -2.8, 6.5, -0.3, { cast: false });
+  box(9.0, 0.03, 10.0, M.soffit, -2.8, 6.17, -0.3, { cast: false });
+  // GF roof over the east (single-storey) part: overhang south for the terrace
+  box(7.2, 0.28, 10.6, M.concrete, 3.4, 3.2, 0.4);
+  box(7.3, 0.16, 10.7, M.fascia, 3.4, 3.46, 0.4, { cast: false });
+  box(7.0, 0.03, 10.4, M.soffit, 3.4, 3.17, 0.4, { cast: false });
+})();
+
+(function buildTerrace() {
+  // paver terrace platform, 2 steps down to the lawn, pool with dark liner + coping
+  box(13.2, 0.15, 5.6, M.pavers, 0.6, -0.15, 6.6, { cast: false });
+  box(13.2, 0.12, 0.5, M.pavers, 0.6, -0.27, 9.55, { cast: false });   // step 1
+  box(13.2, 0.12, 0.5, M.pavers, 0.6, -0.39, 10.05, { cast: false });  // step 2
+  // pool: coping ring + dark basin + water plane (material refined in Task 5)
+  box(4.6, 0.1, 2.9, M.concrete, 3.6, -0.05, 6.9, { cast: false });    // coping
+  box(4.2, 0.05, 2.5, M.darkStone, 3.6, -0.1, 6.9, { cast: false });   // basin hint
+  const water = new THREE.Mesh(
+    new THREE.PlaneGeometry(4.2, 2.5).rotateX(-Math.PI / 2),
+    new THREE.MeshStandardMaterial({ color: '#0e3440', roughness: 0.05, metalness: 0.1, envMapIntensity: 1.4 })
+  );
+  water.position.set(3.6, 0.02, 6.9);
+  root.add(water);
+  // stepping pavers from terrace into the lawn
+  for (let i = 0; i < 5; i++) box(0.9, 0.05, 0.6, M.pavers, -3.4 - i * 0.15, -0.10, 9.8 + i * 0.95, { cast: false });
+})();
+
 // SECTION: interior — Task 6 (furniture GLTFs + fittings)
 // SECTION: garden — Task 6 (trees, hedges, path)
 
