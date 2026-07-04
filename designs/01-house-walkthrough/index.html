@@ -498,6 +498,7 @@ const M = {
   steel: new THREE.MeshStandardMaterial({ color: '#26241f', roughness: 0.45, metalness: 0.85 }),
   innerWall: new THREE.MeshStandardMaterial({ color: '#efeae0', roughness: 0.97 }),
   darkStone: new THREE.MeshStandardMaterial({ color: '#2b2e30', roughness: 0.4, metalness: 0.05 }),
+  plinthConc: new THREE.MeshStandardMaterial({ color: '#c6c0b4', roughness: 1 }),
 };
 function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
@@ -510,7 +511,8 @@ function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
 (function buildShell() {
   const T = 0.28;                                  // wall thickness — the anti-cardboard number
   // plinth + floor slabs: house sits ON something, not in the grass
-  box(13.2, 0.35, 9.2, M.concrete, 0, -0.35, 0);                       // plinth, proud of the lawn
+  box(13.2, 0.35, 9.2, M.plinthConc, 0, -0.35, 0);                     // plinth, proud of the lawn
+  // side faces over-tile (repeat tuned for the top face) — acceptable: edge is hidden behind glazing from Task 5 on
   box(12.4, 0.12, 8.4, M.woodFloor, 0, -0.02, 0, { cast: false });     // GF interior floor
   // north wall (solid) + west wall (solid, clerestory slot)
   box(12.8, 3.2, T, M.plaster, 0, 0, -4 - T / 2);
@@ -536,8 +538,8 @@ function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
   box(T, 2.7, 6.2 + T, M.plaster, 0.9 + T / 2, 3.5, -0.9 + T / 2);
   // roof slab + dark fascia + light soffit under the overhang
   box(9.2, 0.3, 10.2, M.concrete, -2.8, 6.2, -0.3);
-  box(9.3, 0.18, 10.3, M.fascia, -2.8, 6.5, -0.3, { cast: false });
-  box(9.0, 0.03, 10.0, M.soffit, -2.8, 6.17, -0.3, { cast: false });
+  box(9.3, 0.18, 10.3, M.fascia, -2.8, 6.48, -0.3, { cast: false });
+  box(9.0, 0.03, 10.0, M.soffit, -2.8, 6.18, -0.3, { cast: false });
   // GF roof over the east (single-storey) part: overhang south for the terrace
   box(7.2, 0.28, 10.6, M.concrete, 3.4, 3.2, 0.4);
   box(7.3, 0.16, 10.7, M.fascia, 3.4, 3.46, 0.4, { cast: false });
@@ -546,16 +548,17 @@ function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
 
 (function buildTerrace() {
   // paver terrace platform, 12 cm curb above the lawn, pool with dark liner + coping
-  box(13.2, 0.15, 5.6, M.pavers, 0.6, -0.15, 6.6, { cast: false });
+  box(13.2, 0.15, 4.8, M.pavers, 0.6, -0.15, 7.0, { cast: false });
   // pool: coping frame around a sunken water surface, dark basin floor below
   for (const [w, d, px, pz] of [[4.6, 0.2, 3.6, 5.55], [4.6, 0.2, 3.6, 8.25], [0.2, 2.5, 1.4, 6.9], [0.2, 2.5, 5.8, 6.9]])
     box(w, 0.1, d, M.concrete, px, -0.05, pz, { cast: false });
-  box(4.2, 0.05, 2.5, M.darkStone, 3.6, -0.4, 6.9, { cast: false });   // basin floor under the water
+  box(4.2, 0.05, 2.5, M.darkStone, 3.6, -0.4, 6.9, { cast: false });   // basin floor under the water (visible only if the water material ever goes transparent)
   const water = new THREE.Mesh(
     new THREE.PlaneGeometry(4.2, 2.5).rotateX(-Math.PI / 2),
     new THREE.MeshStandardMaterial({ color: '#0e3440', roughness: 0.05, metalness: 0.1, envMapIntensity: 1.4 })
   );
   water.position.set(3.6, 0.0, 6.9);
+  water.receiveShadow = true;
   root.add(water);
   // stepping pavers from terrace into the lawn
   for (let i = 0; i < 5; i++) box(0.9, 0.05, 0.6, M.pavers, -3.4 - i * 0.15, -0.10, 9.8 + i * 0.95, { cast: false });
