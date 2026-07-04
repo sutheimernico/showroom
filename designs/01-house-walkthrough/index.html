@@ -386,10 +386,10 @@ function applyDay(t) {
 
 // ---------------------------------------------------------------- world
 // SECTION: ground — layered lawn.
-// Layer 1: leafy_grass PBR ground. onBeforeCompile injects (a) a macro re-sample of the
+// Layer 1: grass001 PBR ground. onBeforeCompile injects (a) a macro re-sample of the
 // same map at 1/9 scale to kill visible tiling, (b) soft sine mowing bands (shading-only,
 // never baked hard rects), (c) a worn dirt blend hugging the house plinth.
-const groundMat = new THREE.MeshStandardMaterial({ ...pbr('leafy_grass', 26), roughness: 1, metalness: 0 });
+const groundMat = new THREE.MeshStandardMaterial({ ...pbr('grass001', 26), roughness: 1, metalness: 0 });
 groundMat.onBeforeCompile = (shader) => {
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', '#include <common>\nvarying vec3 vWpos;')
@@ -419,14 +419,14 @@ function makeBladeTexture() {
   const g = c.getContext('2d');
   const rnd = prng(4242);
   g.clearRect(0, 0, 256, 256);
-  for (let i = 0; i < 11; i++) {
+  for (let i = 0; i < 13; i++) {
     const bx = 24 + rnd() * 208;
     const lean = (rnd() - 0.5) * 90;
     const h = 150 + rnd() * 100;
-    const w = 7 + rnd() * 8;
+    const w = 10 + rnd() * 10;
     const grad = g.createLinearGradient(0, 256, 0, 256 - h);
-    grad.addColorStop(0, `rgb(${38 + rnd() * 14}, ${66 + rnd() * 16}, ${26 + rnd() * 8})`);
-    grad.addColorStop(1, `rgb(${96 + rnd() * 30}, ${140 + rnd() * 26}, ${58 + rnd() * 16})`);
+    grad.addColorStop(0, `rgb(${56 + rnd() * 18}, ${96 + rnd() * 20}, ${38 + rnd() * 12})`);
+    grad.addColorStop(1, `rgb(${128 + rnd() * 32}, ${176 + rnd() * 29}, ${80 + rnd() * 20})`);
     g.fillStyle = grad;
     g.beginPath();
     g.moveTo(bx - w / 2, 256);
@@ -475,7 +475,7 @@ const grassWind = { value: 0 };
     const sc = 0.7 + rnd() * 0.6; s.set(sc, sc * (0.8 + rnd() * 0.5), sc);
     m.compose(p, q, s);
     inst.setMatrixAt(placed, m);
-    col.setHSL(0.26 + rnd() * 0.03, 0.42 + rnd() * 0.15, 0.30 + rnd() * 0.12);
+    col.setHSL(0.26 + rnd() * 0.03, 0.35 + rnd() * 0.15, 0.50 + rnd() * 0.20);
     inst.setColorAt(placed, col);
     placed++;
   }

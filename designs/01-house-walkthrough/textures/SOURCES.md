@@ -16,8 +16,18 @@ for provenance and reproducibility only.
 | `aerial_grass_rock` | Exterior ground / terrain | `aerial_grass_rock_{diff,nor_gl,rough}_1k.jpg` | 1024×1024 |
 | `painted_plaster_wall` | Warm interior walls | `painted_plaster_wall_{diff,nor_gl,rough}_1k.jpg` | 1024×1024 |
 | `concrete_floor_02` | Concrete slab / base | `concrete_floor_02_{diff,nor_gl,rough}_1k.jpg` | 1024×1024 |
-| `leafy_grass` | Lawn ground | `leafy_grass_{diff,nor_gl,rough}_1k.jpg` | 1024×1024 |
 | `patterned_concrete_pavers_03` | Terrace pavers | `patterned_concrete_pavers_03_{diff,nor_gl,rough}_1k.jpg` | 1024×1024 |
+
+## `grass001` — ambientCG
+
+The lawn ground initially used Poly Haven's `leafy_grass`, which turned out to
+be brown leaf litter, not turf. Replaced with
+**[ambientCG Grass001](https://ambientcg.com/view?id=Grass001)** (CC0 1.0,
+public domain), `1K-JPG` variant, files renamed to the repo convention:
+
+| Material | Surface | Files (`_diff` / `_nor_gl` / `_rough`) | Resolution |
+|----------|---------|------------------------------------------|------------|
+| `grass001` | Lawn ground | `grass001_{diff,nor_gl,rough}_1k.jpg` | 1024×1024 |
 
 ## Conventions
 
