@@ -403,7 +403,7 @@ groundMat.onBeforeCompile = (shader) => {
       float stripe = smoothstep(-0.9, 0.9, sin(vWpos.x * 0.7854));
       diffuseColor.rgb *= 0.96 + stripe * 0.08;
       float distEdge = max(abs(vWpos.x), abs(vWpos.z) - 1.0);
-      float wear = smoothstep(10.5, 8.0, distEdge);
+      float wear = 1.0 - smoothstep(8.0, 10.5, distEdge);
       diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.85, 0.78, 0.62), wear * 0.22);
     `);
 };
