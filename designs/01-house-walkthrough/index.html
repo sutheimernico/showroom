@@ -602,8 +602,70 @@ function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
   bay(5.9, 1.38, -2.8, 4.9, 2.2, { inset: 0.1 });
 })();
 
-// SECTION: interior — Task 6 (furniture GLTFs + fittings)
-// SECTION: garden — Task 6 (trees, hedges, path)
+// SECTION: interior — Poly Haven photoscans; real-scale GLTFs, origin at floor (y 0.10 = wood floor top).
+// Living zone west/center in front of the glass, dining east, kitchen island at the core wall.
+loadModel('./models/sofa_03/sofa_03.gltf',               { x: -3.6, y: 0.10, z: 1.6, ry: Math.PI });
+loadModel('./models/ArmChair_01/ArmChair_01.gltf',       { x: -1.4, y: 0.10, z: 0.6, ry: -Math.PI / 3 });
+loadModel('./models/coffee_table_round_01/coffee_table_round_01.gltf', { x: -2.9, y: 0.10, z: 0.2 });
+loadModel('./models/dining_table/dining_table.gltf',     { x: 3.4, y: 0.10, z: 0.6 });
+for (const [dx, dz, r] of [[-0.9, -0.8, 0], [0.1, -0.8, 0], [1.0, -0.8, 0],
+                            [-0.9, 1.9, Math.PI], [0.1, 1.9, Math.PI], [1.0, 1.9, Math.PI]]) {
+  loadModel('./models/dining_chair_02/dining_chair_02.gltf', { x: 3.4 + dx - 0.05, y: 0.10, z: 0.6 + dz, ry: r });
+}
+loadModel('./models/anthurium_botany_01/anthurium_botany_01.gltf', { x: 5.4, y: 0.10, z: -3.2 });
+loadModel('./models/anthurium_botany_01/anthurium_botany_01.gltf', { x: -5.6, y: 0.10, z: 3.0, ry: 2.1 });
+
+// kitchen island (procedural — no fitting CC0 model): stone top on an oak body
+const rbox = (w, h, d, r, mat, x, y, z) => {
+  const m = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 3, r), mat);
+  m.position.set(x, y + h / 2, z); m.castShadow = true; m.receiveShadow = true;
+  root.add(m); return m;
+};
+const oak = new THREE.MeshStandardMaterial({ color: '#7d6547', roughness: 0.7 });
+const stone = new THREE.MeshStandardMaterial({ color: '#dcd8d0', roughness: 0.25 });
+rbox(2.6, 0.9, 1.1, 0.02, oak, -3.4, 0.10, -0.9);
+rbox(2.72, 0.05, 1.22, 0.01, stone, -3.4, 1.00, -0.9);
+
+// pendant cluster over the dining table — shades glow at night (Task 7 wires the light)
+const pendantShadeMat = new THREE.MeshStandardMaterial({ color: '#1f1d1a', roughness: 0.4, metalness: 0.6, emissive: '#ffc478', emissiveIntensity: 0 });
+for (const dx of [-0.6, 0, 0.6]) {
+  const drop = 1.05 - Math.abs(dx) * 0.25;
+  box(0.015, drop, 0.015, M.steel, 3.4 + dx, 3.2 - drop, 0.6, { cast: false });
+  const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 0.18, 24, 1, true), pendantShadeMat);
+  shade.position.set(3.4 + dx, 3.2 - drop - 0.02, 0.6);
+  shade.castShadow = true; root.add(shade);
+}
+
+// upstairs: low bed silhouette only (barely visible from the eye-level path)
+rbox(2.2, 0.32, 1.8, 0.04, new THREE.MeshStandardMaterial({ color: '#cfc8b8', roughness: 0.95 }), -3.4, 3.55, -2.2);
+
+// SECTION: garden — photoscanned trees frame the composition; clipped hedges line the terrace.
+gltfLoader.load('./models/island_tree_02/island_tree_02_1k.gltf', (gltf) => {
+  const proto = gltf.scene;
+  proto.traverse((o) => {
+    if (o.isMesh) {
+      o.castShadow = true; o.receiveShadow = true;
+      if (o.material && o.material.transparent) {
+        o.material.alphaTest = 0.5; o.material.transparent = false;
+        o.material.side = THREE.DoubleSide; o.material.depthWrite = true;
+      }
+    }
+  });
+  const bb = new THREE.Box3().setFromObject(proto);
+  const height = bb.max.y - bb.min.y;
+  // 4 placements: frame the hero views (SE + W), never block the facade
+  for (const [tx, tz, sMul, seed] of [[-16, 12, 1.0, 0.17], [16, -8, 1.1, 0.61], [-18, -8, 0.85, 0.39], [20, 11, 0.9, 0.83]]) {
+    const t = proto.clone();
+    const k = (7 * sMul) / height;
+    t.scale.setScalar(k);
+    t.position.set(tx, -0.12 - bb.min.y * k, tz);
+    t.rotation.y = seed * 6.28;
+    root.add(t);
+  }
+});
+// clipped hedges flanking the terrace steps
+const hedgeMat = new THREE.MeshStandardMaterial({ color: '#3c5230', roughness: 0.95 });
+for (const hx of [-6.6, 7.6]) rbox(2.8, 0.65, 0.7, 0.16, hedgeMat, hx, -0.12, 8.6);
 
 // ---------------------------------------------------------------- camera rig
 // Eye-level path, always outside the building envelope. South (+z) is the glass side.
