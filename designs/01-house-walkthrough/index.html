@@ -282,7 +282,7 @@ const skyMat = new THREE.ShaderMaterial({
       vec3 col = mix(uHorizon, uZenith, pow(h, 0.42));
       float sd = max(dot(dir, normalize(uSunDir)), 0.0);
       col += uSunCol * (pow(sd, 8.0) * 0.35 + pow(sd, 350.0) * 3.0);   // haze + tight disc
-      col += uHorizon * exp(-dir.y * dir.y * 60.0) * 0.12;             // horizon sliver
+      col += uHorizon * exp(-dir.y * dir.y * 160.0) * 0.07;            // horizon sliver
       if (uCloud > 0.001 && dir.y > 0.015) {
         vec2 cuv = dir.xz / (dir.y + 0.16) * 1.2;
         float base = fbm2(cuv * 0.6 + vec2(uTime * 0.004, 0.0));
@@ -397,6 +397,7 @@ groundMat.onBeforeCompile = (shader) => {
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <common>', '#include <common>\nvarying vec3 vWpos;')
     .replace('#include <map_fragment>', `#include <map_fragment>
+      diffuseColor.rgb *= 1.35;
       vec3 macro = texture2D(map, vMapUv * 0.11).rgb;
       diffuseColor.rgb *= mix(vec3(1.0), macro * 1.8, 0.42);
       float stripe = smoothstep(-0.9, 0.9, sin(vWpos.x * 0.7854));
@@ -475,7 +476,7 @@ const grassWind = { value: 0 };
     const sc = 0.7 + rnd() * 0.6; s.set(sc, sc * (0.8 + rnd() * 0.5), sc);
     m.compose(p, q, s);
     inst.setMatrixAt(placed, m);
-    col.setHSL(0.26 + rnd() * 0.03, 0.35 + rnd() * 0.15, 0.50 + rnd() * 0.20);
+    col.setHSL(0.26 + rnd() * 0.03, 0.35 + rnd() * 0.15, 0.56 + rnd() * 0.20);
     inst.setColorAt(placed, col);
     placed++;
   }
