@@ -354,8 +354,9 @@ const practicals = { pendants: [], fills: [], eaves: [], pool: null, dayFill: nu
   const p = new THREE.PointLight('#ffc478', 0, 7, 2);       // pendant cluster over dining
   p.position.set(3.4, 2.0, 0.6);
   scene.add(p); practicals.pendants.push(p);
+  // practicals cast no shadows; keep distances short so nothing reaches through walls
   for (const [x, y, z] of [[-3.2, 2.3, 0.8], [-3.4, 5.2, -2.0]]) {   // living + bedroom fill
-    const f = new THREE.PointLight('#ffd9a4', 0, 11, 2);
+    const f = new THREE.PointLight('#ffd9a4', 0, 5, 2);
     f.position.set(x, y, z);
     scene.add(f); practicals.fills.push(f);
   }
@@ -375,6 +376,7 @@ const practicals = { pendants: [], fills: [], eaves: [], pool: null, dayFill: nu
 // ---------------------------------------------------------------- day → night keyframes
 // hor/zen: sky gradient. sunPos: west-travelling arc (west = -x). pt: practicals 0→1.
 // envI: PMREM environment intensity. expo: AgX exposure trim.
+// NOTE: sunI/hemiI/envI/expo calibrated against the SOFT_GPU harness only — confirm on real GPU before shipping (see Task 9).
 const stops = [
   { at: 0.00, hor: '#dbe9f4', zen: '#4a7fd4', sun: '#fff6e6', sunI: 9.5, hemiI: 1.7,  envI: 1.0,  pt: 0.00, fog: 0.0016, expo: 3.4,  stars: 0.0,  cloud: 1.0,  sunPos: [-14, 18, 10] },
   { at: 0.35, hor: '#eed9ac', zen: '#3f6fbe', sun: '#ffe7bd', sunI: 7.8, hemiI: 1.4,  envI: 0.9,  pt: 0.00, fog: 0.0030, expo: 3.0,  stars: 0.0,  cloud: 0.8,  sunPos: [-20, 10, 9] },
@@ -409,7 +411,7 @@ function applyDay(t) {
   dayState.pt = pt;
   for (const p of practicals.pendants) p.intensity = pt * 6;
   for (const f of practicals.fills) f.intensity = pt * 9;
-  for (const s of practicals.eaves) s.intensity = pt * 25;
+  for (const s of practicals.eaves) s.intensity = pt * 40;
   practicals.pool.intensity = pt * 12;
   practicals.dayFill.intensity = 1.2 * (1 - pt);
   pendantShadeMat.emissiveIntensity = pt * 3.5;
@@ -521,10 +523,10 @@ const grassWind = { value: 0 };
 
 // SECTION: house
 const M = {
-  plaster: new THREE.MeshStandardMaterial({ ...pbr('painted_plaster_wall', 3, 1.4), color: '#e6e1d6', roughness: 1 }),
+  plaster: new THREE.MeshStandardMaterial({ ...pbr('painted_plaster_wall', 3, 1.4), color: '#f2ece0', roughness: 1 }),
   concrete: new THREE.MeshStandardMaterial({ ...pbr('concrete_floor_02', 3), color: '#c9c4ba', roughness: 1 }),
   pavers: new THREE.MeshStandardMaterial({ ...pbr('patterned_concrete_pavers_03', 5, 2.2), color: '#d8d4cc', roughness: 1 }),
-  woodFloor: new THREE.MeshStandardMaterial({ ...pbr('wood_floor_deck', 9, 6), color: '#e8ddca', roughness: 0.85 }),
+  woodFloor: new THREE.MeshStandardMaterial({ ...pbr('wood_floor_deck', 9, 6), color: '#dfd6c4', roughness: 0.85 }),
   fascia: new THREE.MeshStandardMaterial({ color: '#3f3b35', roughness: 0.85, metalness: 0, envMapIntensity: 0.1 }),
   soffit: new THREE.MeshStandardMaterial({ color: '#ece7db', roughness: 0.95, envMapIntensity: 0.15 }),
   steel: new THREE.MeshStandardMaterial({ color: '#26241f', roughness: 0.45, metalness: 0.85 }),
