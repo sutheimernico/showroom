@@ -387,7 +387,6 @@ const stops = [
 const _cA = new THREE.Color(), _cB = new THREE.Color();
 const lerp = (a, b, t) => a + (b - a) * t;
 const lerpCol = (target, a, b, k) => { _cA.set(a); _cB.set(b); target.copy(_cA).lerp(_cB, k); };
-let dayState = { pt: 0 };
 function applyDay(t) {
   let i = 0; while (i < stops.length - 2 && t > stops[i + 1].at) i++;
   const a = stops[i], b = stops[i + 1];
@@ -408,7 +407,6 @@ function applyDay(t) {
   scene.environmentIntensity = lerp(a.envI, b.envI, k);
   renderer.toneMappingExposure = lerp(a.expo, b.expo, k);
   const pt = lerp(a.pt, b.pt, k);
-  dayState.pt = pt;
   for (const p of practicals.pendants) p.intensity = pt * 6;
   for (const f of practicals.fills) f.intensity = pt * 9;
   for (const s of practicals.eaves) s.intensity = pt * 40;

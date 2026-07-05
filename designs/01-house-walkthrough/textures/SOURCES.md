@@ -13,7 +13,6 @@ for provenance and reproducibility only.
 | Material | Surface | Files (`_diff` / `_nor_gl` / `_rough`) | Resolution |
 |----------|---------|------------------------------------------|------------|
 | `wood_floor_deck` | Interior wood floor | `wood_floor_deck_{diff,nor_gl,rough}_1k.jpg` | 1024×1024 |
-| `aerial_grass_rock` | Exterior ground / terrain | `aerial_grass_rock_{diff,nor_gl,rough}_1k.jpg` | 1024×1024 |
 | `painted_plaster_wall` | Warm interior walls | `painted_plaster_wall_{diff,nor_gl,rough}_1k.jpg` | 1024×1024 |
 | `concrete_floor_02` | Concrete slab / base | `concrete_floor_02_{diff,nor_gl,rough}_1k.jpg` | 1024×1024 |
 | `patterned_concrete_pavers_03` | Terrace pavers | `patterned_concrete_pavers_03_{diff,nor_gl,rough}_1k.jpg` | 1024×1024 |
