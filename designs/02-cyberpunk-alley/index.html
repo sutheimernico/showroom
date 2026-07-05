@@ -102,6 +102,7 @@
 import { THREE, gsap, ScrollTrigger, makeRenderer, makeComposer, makeGradePass, attachLifecycle, smoothScroll, loop, onResize, loaderOverlay, reducedMotion } from '../../shared/lib.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { Reflector } from 'three/addons/objects/Reflector.js';
 
 const loader = loaderOverlay();
 
@@ -126,163 +127,17 @@ const totalZ = STATIONS[N - 1].z;
 // ---------------------------------------------------------------- renderer / scene
 const renderer = makeRenderer();
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0a14);
-// lighter fog + shorter throw so the walls silhouette against it instead of vanishing into pure black
-scene.fog = new THREE.FogExp2(0x120e1e, 0.014);
+scene.background = new THREE.Color('#0a0c14');
+scene.fog = new THREE.FogExp2('#0a0c14', 0.02);
 const camera = new THREE.PerspectiveCamera(78, innerWidth / innerHeight, 0.1, 300);
 camera.position.set(0, 3.2, 8);
 
-// ---------------------------------------------------------------- shared noise (rain + sign flicker)
-const NOISE = `
-float hash(vec2 p){ return fract(sin(dot(p,vec2(41.3,289.1)))*43758.5453); }
-`;
-
 const ALLEY_HALF_W = 3.6; // narrow alley so buildings read close-up and signs fill the frame
 
-// ---------------------------------------------------------------- wet ground: tiled reflective plane
-const groundUniforms = { uTime: { value: 0 }, uColorA: { value: new THREE.Color('#ff2fb0') }, uColorB: { value: new THREE.Color('#28e5ff') } };
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(ALLEY_HALF_W * 2, 400, 1, 1),
-  new THREE.ShaderMaterial({
-    uniforms: groundUniforms,
-    vertexShader: `varying vec2 vUv; varying vec3 vW;
-      void main(){ vUv=uv; vec4 w=modelMatrix*vec4(position,1.0); vW=w.xyz; gl_Position=projectionMatrix*viewMatrix*w; }`,
-    fragmentShader: NOISE + `uniform float uTime; uniform vec3 uColorA; uniform vec3 uColorB; varying vec2 vUv; varying vec3 vW;
-      void main(){
-        // base wet asphalt — lifted enough to silhouette the street edge against the fog/void
-        vec3 base = vec3(0.05, 0.045, 0.075);
-        // streaked reflections: several independent vertical light streaks (not one lane-stripe —
-        // higher spatial frequency across the street width so multiple puddled reflections read at once),
-        // each warped a little differently along Z so they don't look like a fixed painted line.
-        float ripple = sin(vW.z*0.35 + uTime*0.6) * 0.5 + sin(vW.x*1.3 - uTime*0.3) * 0.5;
-        float lane = vW.x * 2.6 + ripple * 1.1 + sin(vW.z * 0.08) * 0.8;
-        float streak = pow(max(0.0, sin(lane)), 8.0);
-        vec3 refl = mix(uColorA, uColorB, hash(floor(vec2(vW.x * 0.8, vW.z * 0.12)))) * streak * 0.75;
-        // fade the reflection both close to camera (avoid a flat glare right under the lens blowing
-        // out additively with the rain layer) and far into the fog — peaks in a mid-distance band
-        float near = smoothstep(0.0, 40.0, -vW.z);
-        float far = smoothstep(1.0, 0.0, -vW.z / 340.0);
-        // hard-clamp so overlapping lanes can never sum past a controlled ceiling and clip to flat white
-        vec3 col = base + min(refl * near * far, vec3(0.62));
-        // near-camera rim brightening so the ground doesn't read as a hard-edged wedge in the dark
-        col += vec3(0.03, 0.025, 0.05) * (1.0 - smoothstep(0.0, 50.0, -vW.z));
-        // faint centre-line hint to read this as a paved street, not an abstract plane
-        float centre = smoothstep(0.14, 0.0, abs(vUv.x - 0.5)) * step(0.5, fract(vW.z * 0.09));
-        col += vec3(0.12, 0.1, 0.06) * centre * 0.4;
-        gl_FragColor = vec4(col, 1.0);
-      }`,
-  })
-);
-ground.rotation.x = -Math.PI / 2;
-ground.position.set(0, 0, -180);
-scene.add(ground);
-
-// ---------------------------------------------------------------- alley walls (instanced blocks either side, faces catch neon via fresnel)
-function hash2(i, s) { const x = Math.sin(i * 12.9898 + s * 78.233) * 43758.5453; return x - Math.floor(x); }
-function buildWallSide(sign) {
-  const group = new THREE.Group();
-  const blockGeo = new THREE.BoxGeometry(5, 1, 5.5);
-  const blockMat = new THREE.ShaderMaterial({
-    // NOTE: THREE.ShaderMaterial does NOT auto-apply instanceMatrix — without multiplying
-    // it in manually, every instance renders at the geometry's raw (untransformed) origin,
-    // stacking all 26 blocks on top of each other into one block-sized shape near world origin.
-    vertexShader: `varying vec3 vN; varying vec3 vW; varying vec2 vUv;
-      void main(){
-        vUv = uv;
-        vec4 local = instanceMatrix * vec4(position, 1.0);
-        vN = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
-        vec4 w = modelMatrix * local;
-        vW = w.xyz;
-        gl_Position = projectionMatrix * viewMatrix * w;
-      }`,
-    fragmentShader: `varying vec3 vN; varying vec3 vW; varying vec2 vUv;
-      const vec3 MAGENTA = vec3(1.0, 0.18, 0.69);
-      const vec3 CYAN = vec3(0.16, 0.9, 1.0);
-      const vec3 AMBER = vec3(1.0, 0.7, 0.24);
-      float hash(vec2 p){ return fract(sin(dot(p,vec2(41.3,289.1)))*43758.5453); }
-      void main(){
-        // concrete facade, lifted well above black so it silhouettes against the fog/void on its own —
-        // does NOT depend on fresnel or bloom to read as a solid building.
-        vec3 base = vec3(0.24, 0.22, 0.30);
-        float cyc = mod(floor(-vW.z / 10.0), 3.0);
-        vec3 bounce = cyc < 0.5 ? MAGENTA : (cyc < 1.5 ? CYAN : AMBER);
-        vec3 V = normalize(cameraPosition - vW);
-        float fres = pow(1.0 - clamp(dot(normalize(vN), V), 0.0, 1.0), 1.8);
-        // grid of lit windows: sparse bright cells (most windows are dark at this hour) —
-        // a high threshold + toned-down colour so the facade reads as scattered lights, not a
-        // solid glowing wall once tiled across 26 real building instances.
-        vec2 cell = floor(vec2(vUv.x * 8.0, vW.y * 1.6));
-        vec2 cellUv = fract(vec2(vUv.x * 8.0, vW.y * 1.6));
-        float lit = step(0.86, hash(cell + floor(vW.z * 0.3)));
-        float pane = step(0.16, cellUv.x) * step(cellUv.x, 0.84) * step(0.2, cellUv.y) * step(cellUv.y, 0.8);
-        vec3 winColor = mix(vec3(1.0,0.82,0.55), bounce, 0.15);
-        vec3 col = base + fres * bounce * 0.25 + lit * pane * winColor * 0.55;
-        gl_FragColor = vec4(col, 1.0);
-      }`,
-  });
-  const count = 26;
-  const inst = new THREE.InstancedMesh(blockGeo, blockMat, count);
-  const m = new THREE.Matrix4();
-  for (let i = 0; i < count; i++) {
-    // start well clear of the camera's opening position (z=8) so no block face is ever
-    // seen point-blank/dead-on in the first frame, before any scroll has happened
-    const z = -i * 13 - 34;
-    const h = 9 + hash2(i, sign) * 14;
-    m.makeScale(1, h, 1);
-    m.setPosition(sign * (ALLEY_HALF_W + 2.5), h / 2, z);
-    inst.setMatrixAt(i, m);
-  }
-  inst.instanceMatrix.needsUpdate = true;
-  group.add(inst);
-  return { group, mat: blockMat };
-}
-const wallL = buildWallSide(1);
-const wallR = buildWallSide(-1);
-scene.add(wallL.group, wallR.group);
-
-// ---------------------------------------------------------------- neon signs (planes flush on the wall face, facing down the alley)
-const SIGN_COLORS = ['#ff2fb0', '#28e5ff', '#ffb23c'];
-const signGeo = new THREE.PlaneGeometry(1, 1);
-function signMat(color) {
-  return new THREE.ShaderMaterial({
-    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-    uniforms: { uColor: { value: new THREE.Color(color) }, uTime: { value: 0 }, uSeed: { value: Math.random() * 10 } },
-    vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-    fragmentShader: `uniform vec3 uColor; uniform float uTime; uniform float uSeed; varying vec2 vUv;
-      void main(){
-        // bar-code style neon strokes (kanji-sign silhouette)
-        float bars = step(0.5, fract(vUv.x * 6.0 + floor(uSeed)));
-        float rows = step(0.5, fract(vUv.y * 3.0 + floor(uSeed * 3.0)));
-        float glyph = max(bars * (1.0 - rows * 0.4), rows * 0.5);
-        float glow = smoothstep(0.0, 0.15, vUv.y) * smoothstep(1.0, 0.85, vUv.y) * smoothstep(0.0,0.06,vUv.x) * smoothstep(1.0,0.94,vUv.x);
-        float flicker = 0.85 + 0.15 * step(0.985, sin(uTime * 2.0 + uSeed * 50.0) * 0.5 + 0.5) * sin(uTime * 20.0);
-        vec3 core = uColor * (1.4 * glyph + 0.35);
-        gl_FragColor = vec4(core * flicker, glow * (0.7 * glyph + 0.3));
-      }`,
-  });
-}
-const signs = [];
-const signLights = [];
-function addSign(side, y, z, w, h, color) {
-  const mat = signMat(color);
-  const mesh = new THREE.Mesh(signGeo, mat);
-  mesh.scale.set(w, h, 1);
-  mesh.position.set(side * (ALLEY_HALF_W - 0.05), y, z);
-  mesh.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2; // face inward, down the alley corridor
-  scene.add(mesh);
-  signs.push(mat);
-  // point light so it tints the alley air, opposite wall and the ground below it
-  const light = new THREE.PointLight(new THREE.Color(color), 8, 16, 2);
-  light.position.set(side * (ALLEY_HALF_W - 0.6), y, z);
-  scene.add(light);
-  signLights.push(light);
-}
-for (let i = 0; i < 26; i++) {
-  const z = -i * 10 - 15; // keep the nearest sign well clear of the camera's start position (z=8) to avoid a bloom blowout
-  const side = i % 2 === 0 ? 1 : -1;
-  const color = SIGN_COLORS[i % SIGN_COLORS.length];
-  addSign(side, 2.4 + hash2(i, 3) * 3.4, z, 1.6 + hash2(i, 7) * 1.2, 2.2 + hash2(i, 11) * 1.6, color);
-}
+// SECTION: buildings — Task 2
+// SECTION: street — Task 3
+// SECTION: signs — Task 4
+// SECTION: atmosphere — Task 5
 
 // ---------------------------------------------------------------- signature element: volumetric neon rain
 // Instanced elongated streaks (not dots) with additive blending — this is what actually reads as
@@ -342,7 +197,7 @@ const root = document.documentElement;
 // ---------------------------------------------------------------- post
 const composer = makeComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.68, 0.5, 0.78);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.55, 0.6, 0.82);
 composer.addPass(bloom);
 const grade = makeGradePass({ aberration: 0.002, vignetteMin: 0.55, grain: 0.03 });
 composer.addPass(grade);
@@ -387,8 +242,6 @@ loop((elapsed, dt) => {
   camera.position.x = reducedMotion ? 0 : Math.sin(elapsed * 0.35) * 0.3;
   camera.lookAt(camera.position.x * 0.4, 2.6, camZ - 26);
 
-  for (const m of signs) m.uniforms.uTime.value = elapsed;
-  groundUniforms.uTime.value = elapsed;
   grade.uniforms.uTime.value = elapsed;
 
   // rain: fall + wrap in a band that follows the camera down the alley so it always surrounds the viewer
