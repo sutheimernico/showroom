@@ -152,29 +152,37 @@ function buildWindowAtlas() {
     const r = Math.min(1, col.r * factor), gg = Math.min(1, col.g * factor), b = Math.min(1, col.b * factor);
     return `rgb(${Math.round(r * 255)},${Math.round(gg * 255)},${Math.round(b * 255)})`;
   };
-  g.fillStyle = '#07080b';
+  g.fillStyle = '#0b0d11'; // dark concrete spandrel — this is what shows between windows now
   g.fillRect(0, 0, ATLAS_SIZE, ATLAS_SIZE);
   for (let row = 0; row < ATLAS_ROWS; row++) {
     for (let col = 0; col < ATLAS_COLS; col++) {
       const x = col * cw, y = row * ch;
       const roll = rnd();
-      if (roll < 0.58) {
-        // dark pane: faint frame so it still reads as glass, not a solid gap in the wall
+      if (roll < 0.64) {
+        // unlit pane: slightly darker than the concrete + a faint frame so it still reads as
+        // glass, not a solid gap in the wall
+        g.fillStyle = '#0a0c10';
+        g.fillRect(x, y, cw, ch);
         g.strokeStyle = 'rgba(255,255,255,0.05)';
         g.strokeRect(x + 0.5, y + 0.5, cw - 1, ch - 1);
         continue;
       }
-      const hue = roll < 0.82 ? '#ffb46a' : roll < 0.92 ? '#9fc4ff' : roll < 0.95 ? '#9fe8c8' : '#ffb46a';
-      const half = roll >= 0.95; // half-drawn blind: top lit, bottom dark
+      // cinematic warm-dominant roll: mostly amber, sparse cool/magenta/green accents
+      const hue = roll < 0.86 ? '#ffb46a' : roll < 0.92 ? '#b3742e' : roll < 0.96 ? '#9fc4ff'
+        : roll < 0.98 ? '#ff6ad5' : '#7fd8a8'; // last sliver: green TV glow, pairs with the shader's flicker hash
+      const half = rnd() < 0.15; // half-drawn blind: top lit, bottom dark
       const bright = 1 + (rnd() - 0.5) * 0.6; // +/-30%
-      const inset = 2 + rnd(); // 2-3px window frame
-      const litH = half ? ch / 2 : ch;
+      // window fills only the centered portion of the cell — the rest stays dark concrete/mullion,
+      // which is the actual fix for "giant glowing slab" towers
+      const winW = cw * 0.58, winH = ch * 0.52;
+      const winX = x + (cw - winW) / 2, winY = y + (ch - winH) / 2;
+      const litH = half ? winH / 2 : winH;
       g.fillStyle = shade(hue, bright);
-      g.fillRect(x + inset, y + inset, cw - inset * 2, litH - inset * 2);
+      g.fillRect(winX, winY, winW, litH);
       if (rnd() < 0.15) {
-        g.fillStyle = 'rgba(7,8,11,0.55)'; // curtain strip across part of the lit pane
-        const stripX = x + cw * (0.35 + rnd() * 0.3);
-        g.fillRect(stripX, y + inset, cw * 0.12, litH - inset * 2);
+        g.fillStyle = 'rgba(11,13,17,0.55)'; // curtain strip across part of the lit pane
+        const stripX = winX + winW * (0.35 + rnd() * 0.3);
+        g.fillRect(stripX, winY, winW * 0.12, litH);
       }
     }
   }
@@ -200,7 +208,7 @@ function buildWindowAtlas() {
 const windowAtlas = buildWindowAtlas();
 
 // ---------------------------------------------------------------- facade material (shared by every tier)
-// World-space UV mapping (4m bay x 3.4m floor) means one shader serves boxes of any size — base/mid/
+// World-space UV mapping (2m bay x 3.3m floor) means one shader serves boxes of any size — base/mid/
 // crown/back-row towers all reuse this single MeshStandardMaterial + onBeforeCompile. Per the repo's
 // documented pitfall (PLAN.md, 02 recon): MeshStandardMaterial + onBeforeCompile gets instanceMatrix
 // applied to position/normal automatically (USE_INSTANCING) — only raw ShaderMaterial needs it by hand.
@@ -248,7 +256,7 @@ facadeMat.onBeforeCompile = (shader) => {
     .replace('#include <emissivemap_fragment>', `
       vec3 an = abs(vNrm);
       float facadeU = an.x > 0.5 ? vWpos.z : vWpos.x; // pick the facade's own running axis
-      vec2 wuv = vec2(facadeU / 4.0, vWpos.y / 3.4) + vIhashUV;
+      vec2 wuv = vec2(facadeU / 2.0, vWpos.y / 3.3) + vIhashUV;
       vec2 cellId = floor(wuv);
       vec4 win = texture2D(emissiveMap, fract(wuv / vec2(12.0, 24.0)));
       float cellHash = fract(sin(dot(cellId, vec2(12.9898, 78.233))) * 43758.5453);
