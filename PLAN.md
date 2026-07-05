@@ -373,3 +373,29 @@ User-requested concepts (2026-06-29): `21-earth-descent` (build now), `22-goal-s
   ring and frame instead. Exposure: soft shadow radius 5 (razor edges read CG), and a gentle
   photographic grade in the vignette pass (saturation 1.12, contrast 1.05) so daylight doesn't
   read milky. Higgsfield-AI pass for this piece still blocked on the empty API wallet.
+- 2026-07-05 — **full scene rebuild of `01-house-walkthrough`** (Nico's mandate: "0 realitätsnah →
+  krass hinkriegen, ggf. komplett neu aufbauen" — the incremental passes above had hit their
+  ceiling). Concept kept as-is: scroll-scrubbed day→night arc (14:30→21:00), the cinematic camera
+  ride, the night-lantern payoff, and the existing page chrome. Realism landed via six levers
+  applied together: (1) an eye-level, 38° FOV camera path kept entirely outside the building
+  envelope (the old drone-height 58° rig clipped through the slab); (2) AgX tone mapping + a
+  GTAOPass (hardware GPUs only) + 4k soft shadows; (3) a live-baked PMREM environment resampled
+  off the sky dome every frame (throttled), so ambient light/reflections track the exact time of
+  day instead of a static IBL; (4) a layered lawn — ambientCG `grass001` PBR ground with an
+  anti-tiling macro re-sample + soft sine mowing-band shading, plus ~45k instanced blade-clump
+  cards (7k on the SOFT_GPU/SwiftShader fallback); (5) architecture with real wall depth (0.28 m),
+  recessed physically-based transmission glazing (`FrontSide`, cheap transparent-standard fallback
+  on software rasterizers), a proud plinth, roof fascia/soffit, and a paver terrace + pool rebuilt
+  with a proper coping frame; (6) Poly Haven photoscanned furniture — `sofa_03`, `ArmChair_01`,
+  `coffee_table_round_01`, `dining_table`, 6× `dining_chair_02`, 2× `anthurium` — plus 4×
+  `island_tree_02`. Night payoff switched from the old emissive-wall fake to real practicals:
+  pendant cluster, interior fills, eave-wash spots, and a pool light.
+  Dropped as no longer earning their keep: dust motes, `RoomEnvironment`, the `aerial_grass_rock`
+  ground texture, and the baked mowing-stripe canvas.
+  **Calibration caveat**: sun/hemi intensity and the AgX exposure curve were tuned entirely on
+  SwiftShader (exposure lands at 3.4 at t=0, far outside the physically-sane ~1-ish range this
+  would need on a real display) — this NEEDS a check on real GPU hardware before shipping
+  publicly. GTAO and the physical-transmission glass path are both hardware-gated and have never
+  actually executed under this software-render harness.
+  Also: `tools/shot.mjs` now waits for the loader overlay to dismiss before taking the first shot
+  (was racing texture/GLTF decode, occasionally catching a dark/loading frame).
