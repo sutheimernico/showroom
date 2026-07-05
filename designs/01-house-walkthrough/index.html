@@ -189,6 +189,13 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 // saturated greens/oranges — the old lawn read radioactive under ACES.
 renderer.toneMapping = THREE.AgXToneMapping;
 
+// weak GPUs can lose the context outright under load — reload once, forced to low
+renderer.domElement.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  sessionStorage.setItem('house-forced-low', '1');
+  location.reload();
+});
+
 // software rasterizer (headless shot harness) → cheaper code paths, same look philosophy
 const _glinfo = (() => {
   const gl = renderer.getContext();
@@ -525,7 +532,7 @@ function makeBladeTexture() {
 }
 const grassWind = { value: 0 };
 let grassMesh;
-(function buildLawn() {
+function buildLawn() {
   const rnd = prng(1234);
   const COUNT = Q().grass;
   const quad = new THREE.PlaneGeometry(0.34, 0.30, 1, 2); quad.translate(0, 0.15, 0);
@@ -570,7 +577,9 @@ let grassMesh;
   if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
   grassMesh = inst;
   scene.add(inst);
-})();
+}
+// 45k matrix composes are main-thread work — defer off the critical load path
+(window.requestIdleCallback || ((fn) => setTimeout(fn, 1)))(buildLawn);
 
 // SECTION: house
 const M = {
@@ -861,7 +870,13 @@ loop((elapsed, dt) => {
 });
 
 manager.onProgress = (_url, n, total) => loader.set(total ? n / total : 1);
-manager.onLoad = () => { loader.set(1); setTimeout(() => loader.done(), 350); };
+manager.onLoad = () => {
+  loader.set(1);
+  // compile every shader while the opaque loader still covers the canvas —
+  // first-render compile storms (transmission/GTAO/PCFSoft) froze weak laptops
+  renderer.compile(scene, camera);
+  setTimeout(() => loader.done(), 350);
+};
 manager.onError = () => { loader.set(1); setTimeout(() => loader.done(), 350); };
 if (!assetsQueued) loader.done();
 </script>
