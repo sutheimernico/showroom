@@ -125,3 +125,10 @@ governor can swap them live. Open: real-GPU validation of tier thresholds and go
 (BUDGET_MS 33, grass counts, med-tier heuristic regex are starting values — tune against Nico's
 hardware feedback); MSAA flag in the tier table is reserved, composer MSAA still decided by
 shared lib's software check.
+
+**Review fast-follow (2026-07-05):** context-loss reload now guards on the existing
+`house-forced-low` flag (reload once, never loop); `manager.onLoad` pre-warms BOTH glass
+variants so a governor step-down swaps materials without a synchronous compile stall.
+Residual accepted gaps: the idle-built lawn shader compiles outside the loader overlay
+(minor — single standard material), and the `if (grassMesh)` guard in `applyTierLive` is
+load-bearing against the idle-build race.

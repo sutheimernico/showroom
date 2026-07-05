@@ -192,6 +192,7 @@ renderer.toneMapping = THREE.AgXToneMapping;
 // weak GPUs can lose the context outright under load — reload once, forced to low
 renderer.domElement.addEventListener('webglcontextlost', (e) => {
   e.preventDefault();
+  if (sessionStorage.getItem('house-forced-low')) return;   // reload ONCE — never loop
   sessionStorage.setItem('house-forced-low', '1');
   location.reload();
 });
@@ -873,8 +874,15 @@ manager.onProgress = (_url, n, total) => loader.set(total ? n / total : 1);
 manager.onLoad = () => {
   loader.set(1);
   // compile every shader while the opaque loader still covers the canvas —
-  // first-render compile storms (transmission/GTAO/PCFSoft) froze weak laptops
+  // first-render compile storms (transmission/GTAO/PCFSoft) froze weak laptops.
+  // Pre-warm BOTH glass variants so a governor step-down swaps without a stall.
   renderer.compile(scene, camera);
+  if (glassPanes.length) {
+    const original = glassPanes[0].material;
+    glassPanes[0].material = original === glassPhys ? glassCheap : glassPhys;
+    renderer.compile(scene, camera);
+    glassPanes[0].material = original;
+  }
   setTimeout(() => loader.done(), 350);
 };
 manager.onError = () => { loader.set(1); setTimeout(() => loader.done(), 350); };
