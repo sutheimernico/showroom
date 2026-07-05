@@ -79,6 +79,13 @@ try {
   process.exit(2);
 }
 await page.waitForTimeout(2800); // assets + first frames
+// GLTF-heavy designs can outlive the fixed wait — also wait for the shared loader
+// overlay (base.css `.loader`) to be dismissed + its 0.5s fade to finish, if present.
+await page.waitForFunction(() => {
+  const el = document.querySelector('.loader');
+  return !el || el.classList.contains('hidden');
+}, { timeout: 30000 }).catch(() => console.log('WARN: loader overlay still visible after 30s'));
+await page.waitForTimeout(1000); // overlay fade-out (base.css: opacity .8s ease)
 
 for (let i = 0; i < positions.length; i++) {
   const p = positions[i];
