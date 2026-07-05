@@ -399,3 +399,16 @@ User-requested concepts (2026-06-29): `21-earth-descent` (build now), `22-goal-s
   actually executed under this software-render harness.
   Also: `tools/shot.mjs` now waits for the loader overlay to dismiss before taking the first shot
   (was racing texture/GLTF decode, occasionally catching a dark/loading frame).
+- 2026-07-05 — **adaptive performance pass on `01-house-walkthrough`** (Nico's laptop froze on
+  load — the scene was all-or-nothing: transmission glass + GTAO + 4k shadows + 45k grass + DPR 2
+  all at once). Three quality tiers (high/med/low: shadows 4096/2048/1024, grass 45k/22k/9k,
+  physical-transmission glass and GTAO high-only, DPR cap 2/1.5/1, env-bake throttle
+  0.03/0.06/0.12). Static heuristic picks the start tier (renderer string + core count;
+  `?tier=high|med|low` override; SwiftShader → low; `house-forced-low` sessionStorage flag wins);
+  a rolling-median frame-time governor (33 ms budget, 40-frame window, skips the first 60 frames)
+  steps DOWN only and applies live: pixelRatio, shadow-map realloc, grass `instanceMesh.count`,
+  GTAO toggle, glass material swap. Load hardening: `renderer.compile(scene, camera)` runs behind
+  the opaque loader overlay (first-render compile storm was the prime freeze suspect), the lawn
+  builds in `requestIdleCallback`, and `webglcontextlost` reloads once forced to low. Caveat:
+  the governor's step-down can't be observed under SwiftShader (never reaches 60 warm frames in
+  a harness window) — mechanism code-reviewed; real-GPU confirmation pending (`?tier=` A/B).

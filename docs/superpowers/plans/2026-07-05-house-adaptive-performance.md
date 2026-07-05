@@ -115,3 +115,13 @@ renderer.domElement.addEventListener('webglcontextlost', (e) => {
 - [ ] **Step 4.3:** Outcome section in this plan doc. Commit `docs(01-house): log adaptive performance pass`.
 
 **Judgement points:** tier thresholds (BUDGET_MS, grass counts) are starting values — tune against Nico's real-hardware feedback, not SwiftShader. The governor's step-down `console.info` stays in as diagnostics.
+
+## Outcome (2026-07-05)
+
+All 4 tasks implemented (commits 8d9e610, dc1336c, cfa02bf + this docs commit).
+Deviations: pixelRatio consumer sits after the tier module (declaration order), low tier grass
+9000 replaces the old SOFT_GPU 7000, glass materials are now both constructed up front so the
+governor can swap them live. Open: real-GPU validation of tier thresholds and governor behavior
+(BUDGET_MS 33, grass counts, med-tier heuristic regex are starting values — tune against Nico's
+hardware feedback); MSAA flag in the tier table is reserved, composer MSAA still decided by
+shared lib's software check.
