@@ -221,6 +221,33 @@ const Q = () => TIERS[tier];
 // right after makeRenderer()'s own default, and before makeComposer() sizes off it.
 renderer.setPixelRatio(Math.min(devicePixelRatio, Q().dpr));
 
+// rolling frame-time governor: if the median of the last 40 frames blows the
+// budget, step down one tier and apply the cheap-to-switch settings live.
+// Never steps up (avoids oscillation). Skips the first 60 frames (load spikes).
+const BUDGET_MS = 33;                    // ~30fps floor before we degrade
+const frameTimes = [];
+let framesSeen = 0;
+function applyTierLive() {
+  const q = Q();
+  renderer.setPixelRatio(Math.min(devicePixelRatio, q.dpr));
+  sun.shadow.mapSize.set(q.shadow, q.shadow);
+  if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }   // force realloc
+  envStep = q.envStep;
+  if (grassMesh) grassMesh.count = Math.min(grassMesh.count, q.grass);   // instanced count shrinks free
+  if (gtao) gtao.enabled = q.gtao;
+  for (const pane of glassPanes) pane.material = q.physGlass ? glassPhys : glassCheap;
+  console.info(`[quality] tier → ${tier}`);
+}
+function governor(dt) {
+  if (++framesSeen < 60 || tier === 'low') return;
+  frameTimes.push(dt * 1000);
+  if (frameTimes.length < 40) return;
+  frameTimes.sort((a, b) => a - b);
+  const median = frameTimes[20];
+  frameTimes.length = 0;
+  if (median > BUDGET_MS) { tier = tier === 'high' ? 'med' : 'low'; applyTierLive(); }
+}
+
 const scene = new THREE.Scene();
 scene.background = null;
 scene.fog = new THREE.FogExp2('#cfe0ee', 0.0016);
@@ -497,6 +524,7 @@ function makeBladeTexture() {
   return t;
 }
 const grassWind = { value: 0 };
+let grassMesh;
 (function buildLawn() {
   const rnd = prng(1234);
   const COUNT = Q().grass;
@@ -540,6 +568,7 @@ const grassWind = { value: 0 };
   }
   inst.instanceMatrix.needsUpdate = true;
   if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+  grassMesh = inst;
   scene.add(inst);
 })();
 
@@ -623,23 +652,26 @@ function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
   for (let i = 0; i < 5; i++) box(0.9, 0.05, 0.6, M.pavers, -3.4 - i * 0.15, -0.10, 9.8 + i * 0.95, { cast: false });
 })();
 
+// Physical glass: real fresnel reflections + transmission — gated to the high
+// tier only. Transmission re-renders the scene into a buffer, too heavy for
+// weak GPUs (and SwiftShader always lands on low), so med/low fall back to a
+// transparent standard material. Both materials are built up front (not just
+// the tier's pick) so the governor can swap panes to the cheap one live.
+// FrontSide: camera never enters the envelope; kills back-face transmission cost + double-layer risk
+const glassPhys = new THREE.MeshPhysicalMaterial({ color: '#eef4f4', roughness: 0.03, metalness: 0,
+    transmission: 1, thickness: 0.02, ior: 1.52, envMapIntensity: 1.0, side: THREE.FrontSide });
+const glassCheap = new THREE.MeshStandardMaterial({ color: '#cfe0e4', roughness: 0.04, metalness: 0,
+    transparent: true, opacity: 0.14, envMapIntensity: 1.2, side: THREE.FrontSide });
+const glassPanes = [];
 (function buildGlazing() {
-  // Physical glass: real fresnel reflections + transmission — gated to the high
-  // tier only. Transmission re-renders the scene into a buffer, too heavy for
-  // weak GPUs (and SwiftShader always lands on low), so med/low fall back to a
-  // transparent standard material.
-  // FrontSide: camera never enters the envelope; kills back-face transmission cost + double-layer risk
-  const glass = Q().physGlass
-    ? new THREE.MeshPhysicalMaterial({ color: '#eef4f4', roughness: 0.03, metalness: 0,
-        transmission: 1, thickness: 0.02, ior: 1.52, envMapIntensity: 1.0, side: THREE.FrontSide })
-    : new THREE.MeshStandardMaterial({ color: '#cfe0e4', roughness: 0.04, metalness: 0,
-        transparent: true, opacity: 0.14, envMapIntensity: 1.2, side: THREE.FrontSide });
+  let glass = Q().physGlass ? glassPhys : glassCheap;
   const frame = M.steel;
   // one glazed bay = glass pane + surrounding slim frame profiles, recessed by `inset`
   function bay(w, h, x, y, z, { rotY = 0, inset = 0.12 } = {}) {
     const g = new THREE.Group();
     const pane = new THREE.Mesh(new THREE.BoxGeometry(w - 0.06, h - 0.06, 0.02), glass);
     pane.castShadow = false; pane.receiveShadow = false;
+    glassPanes.push(pane);
     g.add(pane);
     for (const [fw, fh, fx, fy] of [[w, 0.07, 0, h / 2], [w, 0.07, 0, -h / 2], [0.07, h - 0.07, -w / 2, 0], [0.07, h - 0.07, w / 2, 0]]) {
       const f = new THREE.Mesh(new THREE.BoxGeometry(fw, fh, 0.08), frame);
@@ -813,6 +845,7 @@ aim.getPointAt(0, _a); camera.lookAt(_a);
 
 // SECTION: loop-uniforms — per-frame uniform updates (grass wind lands here in Task 3)
 loop((elapsed, dt) => {
+  governor(dt);
   const t = state.t;
   eye.getPointAt(t, _p);
   camera.position.lerp(_p, 1 - Math.exp(-7.7 * dt));   // frame-rate-independent settle
