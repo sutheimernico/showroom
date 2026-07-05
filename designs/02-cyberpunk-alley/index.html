@@ -135,6 +135,242 @@ camera.position.set(0, 3.2, 8);
 const ALLEY_HALF_W = 3.6; // narrow alley so buildings read close-up and signs fill the frame
 
 // SECTION: buildings — Task 2
+// ---------------------------------------------------------------- deterministic RNG (mulberry32)
+const prng = (a) => () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+
+// ---------------------------------------------------------------- window atlas (12x24 lit/dark cells)
+// Baked once; the facade shader below samples it in WORLD space so window rows line up with real
+// floor heights instead of stretching across whatever size box happens to wear the material.
+const ATLAS_COLS = 12, ATLAS_ROWS = 24, ATLAS_SIZE = 1024;
+function buildWindowAtlas() {
+  const c = document.createElement('canvas'); c.width = c.height = ATLAS_SIZE;
+  const g = c.getContext('2d');
+  const rnd = prng(90210);
+  const cw = ATLAS_SIZE / ATLAS_COLS, ch = ATLAS_SIZE / ATLAS_ROWS;
+  const shade = (hex, factor) => {
+    const col = new THREE.Color(hex);
+    const r = Math.min(1, col.r * factor), gg = Math.min(1, col.g * factor), b = Math.min(1, col.b * factor);
+    return `rgb(${Math.round(r * 255)},${Math.round(gg * 255)},${Math.round(b * 255)})`;
+  };
+  g.fillStyle = '#07080b';
+  g.fillRect(0, 0, ATLAS_SIZE, ATLAS_SIZE);
+  for (let row = 0; row < ATLAS_ROWS; row++) {
+    for (let col = 0; col < ATLAS_COLS; col++) {
+      const x = col * cw, y = row * ch;
+      const roll = rnd();
+      if (roll < 0.58) {
+        // dark pane: faint frame so it still reads as glass, not a solid gap in the wall
+        g.strokeStyle = 'rgba(255,255,255,0.05)';
+        g.strokeRect(x + 0.5, y + 0.5, cw - 1, ch - 1);
+        continue;
+      }
+      const hue = roll < 0.82 ? '#ffb46a' : roll < 0.92 ? '#9fc4ff' : roll < 0.95 ? '#9fe8c8' : '#ffb46a';
+      const half = roll >= 0.95; // half-drawn blind: top lit, bottom dark
+      const bright = 1 + (rnd() - 0.5) * 0.6; // +/-30%
+      const inset = 2 + rnd(); // 2-3px window frame
+      const litH = half ? ch / 2 : ch;
+      g.fillStyle = shade(hue, bright);
+      g.fillRect(x + inset, y + inset, cw - inset * 2, litH - inset * 2);
+      if (rnd() < 0.15) {
+        g.fillStyle = 'rgba(7,8,11,0.55)'; // curtain strip across part of the lit pane
+        const stripX = x + cw * (0.35 + rnd() * 0.3);
+        g.fillRect(stripX, y + inset, cw * 0.12, litH - inset * 2);
+      }
+    }
+  }
+  for (let row = 0; row < ATLAS_ROWS; row += 6) {
+    // floor slab: pure black and thick enough (≈1/3 of a floor's row height) to survive bloom
+    // bleed from the lit windows directly above/below it — a thin or mid-grey band washed out
+    g.fillStyle = 'rgba(0,0,0,1)';
+    g.fillRect(0, row * ch, ATLAS_SIZE, ch * 0.3);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  // the facade shader wraps UV with fract() per-fragment, which makes automatic mip-LOD derivatives
+  // explode at every wrap seam (GPU sees a huge fake coordinate jump) — the visible symptom was every
+  // tower reading as a handful of smeared solid-color blobs instead of a crisp window grid. Flat
+  // filtering with no mip chain sidesteps that entirely (aliasing at extreme distance is an acceptable
+  // trade — fog hides those towers anyway).
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
+  return tex;
+}
+const windowAtlas = buildWindowAtlas();
+
+// ---------------------------------------------------------------- facade material (shared by every tier)
+// World-space UV mapping (4m bay x 3.4m floor) means one shader serves boxes of any size — base/mid/
+// crown/back-row towers all reuse this single MeshStandardMaterial + onBeforeCompile. Per the repo's
+// documented pitfall (PLAN.md, 02 recon): MeshStandardMaterial + onBeforeCompile gets instanceMatrix
+// applied to position/normal automatically (USE_INSTANCING) — only raw ShaderMaterial needs it by hand.
+// vWpos/vNrm here are a *parallel* world-space varying for the window shader, computed independently
+// of (and without disturbing) that built-in pipeline.
+const facadeUniforms = { uTime: { value: 0 } };
+const facadeMat = new THREE.MeshStandardMaterial({
+  color: '#101318', roughness: 0.92, metalness: 0.05,
+  emissive: '#ffffff', emissiveIntensity: 1.6, emissiveMap: windowAtlas,
+});
+facadeMat.onBeforeCompile = (shader) => {
+  shader.uniforms.uTime = facadeUniforms.uTime;
+  shader.uniforms.uEmissiveIntensity = { value: facadeMat.emissiveIntensity };
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', `#include <common>
+      varying vec3 vWpos;
+      varying vec3 vNrm;
+      varying vec2 vIhashUV;`)
+    .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+      #ifdef USE_INSTANCING
+        mat3 imn = mat3(instanceMatrix);
+        vNrm = normalize(mat3(modelMatrix) * (imn * normal));
+        float ihx = fract(sin(dot(instanceMatrix[3].xyz, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+        float ihy = fract(sin(dot(instanceMatrix[3].xyz, vec3(93.9898, 67.345, 12.973))) * 12543.231);
+        vIhashUV = vec2(ihx, ihy) * 12.0; // per-instance UV offset so towers never share window phase
+      #else
+        vNrm = normalize(mat3(modelMatrix) * normal);
+        vIhashUV = vec2(0.0);
+      #endif`)
+    .replace('#include <begin_vertex>', `#include <begin_vertex>
+      #ifdef USE_INSTANCING
+        vWpos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
+      #else
+        vWpos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+      #endif`);
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', `#include <common>
+      varying vec3 vWpos;
+      varying vec3 vNrm;
+      varying vec2 vIhashUV;
+      uniform float uTime;
+      uniform float uEmissiveIntensity;`)
+    .replace('#include <color_fragment>', `#include <color_fragment>
+      diffuseColor.rgb *= mix(0.55, 1.0, smoothstep(0.0, 12.0, vWpos.y)); // grime: darker near the street`)
+    .replace('#include <emissivemap_fragment>', `
+      vec3 an = abs(vNrm);
+      float facadeU = an.x > 0.5 ? vWpos.z : vWpos.x; // pick the facade's own running axis
+      vec2 wuv = vec2(facadeU / 4.0, vWpos.y / 3.4) + vIhashUV;
+      vec2 cellId = floor(wuv);
+      vec4 win = texture2D(emissiveMap, fract(wuv / vec2(12.0, 24.0)));
+      float cellHash = fract(sin(dot(cellId, vec2(12.9898, 78.233))) * 43758.5453);
+      float flicker = cellHash > 0.96 ? step(0.5, fract(uTime * (0.5 + cellHash))) : 1.0;
+      vec3 winEmissive = an.y > 0.5 ? vec3(0.0) : win.rgb * flicker; // roof faces: no windows
+      totalEmissiveRadiance = winEmissive * uEmissiveIntensity;`);
+};
+
+// ---------------------------------------------------------------- tower massing (setback tiers + rooftop clutter)
+const unitBox = new THREE.BoxGeometry(1, 1, 1);
+const unitCyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 8);
+
+function buildInstMesh(geo, mat, list) {
+  const mesh = new THREE.InstancedMesh(geo, mat, Math.max(list.length, 1));
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
+  list.forEach((t, i) => {
+    p.set(t.cx, t.by + t.h / 2, t.cz);
+    q.setFromEuler(new THREE.Euler(0, t.yaw, 0));
+    s.set(t.w, t.h, t.d);
+    m.compose(p, q, s);
+    mesh.setMatrixAt(i, m);
+  });
+  mesh.count = list.length;
+  mesh.instanceMatrix.needsUpdate = true;
+  return mesh;
+}
+
+const baseTowers = [], midTowers = [], crownTowers = [], backTowers = [];
+const clutterTanks = [], clutterACs = [], clutterAntennas = [];
+
+function addClutter(list, cx, cz, by, w, h, d, yaw) { list.push({ cx, cz, by, w, h, d, yaw }); }
+
+// scatter 1-3 rooftop pieces across a roof rectangle, keeping clear of whatever tier sits on top of
+// it (coverHalfX/Z) so pieces read as sitting on the exposed setback ring, not buried inside a wall
+function scatterRoofClutter(rnd, roofY, cx, cz, halfX, halfZ, coverHalfX, coverHalfZ) {
+  const count = 1 + Math.floor(rnd() * 3);
+  for (let i = 0; i < count; i++) {
+    let px, pz, tries = 0;
+    do {
+      px = (rnd() - 0.5) * 1.64 * halfX;
+      pz = (rnd() - 0.5) * 1.64 * halfZ;
+      tries++;
+    } while (coverHalfX && Math.abs(px) < coverHalfX && Math.abs(pz) < coverHalfZ && tries < 20);
+    const yaw = rnd() * Math.PI * 2;
+    const kind = rnd();
+    if (kind < 0.4) {
+      const r = 0.5 + rnd() * 0.5;
+      addClutter(clutterTanks, cx + px, cz + pz, roofY, r * 2, 1.4 + rnd() * 1.2, r * 2, yaw);
+    } else if (kind < 0.8) {
+      addClutter(clutterACs, cx + px, cz + pz, roofY, 0.8 + rnd() * 0.8, 0.7 + rnd() * 0.6, 0.8 + rnd() * 0.8, yaw);
+    } else {
+      addClutter(clutterAntennas, cx + px, cz + pz, roofY, 0.12, 4 + rnd() * 6, 0.12, yaw);
+    }
+  }
+}
+
+for (const side of [-1, 1]) {
+  const rnd = prng(side < 0 ? 4111 : 7331);
+  let z = -20, guard = 0;
+  while (z > -290 && guard++ < 40) {
+    const baseW = 10 + rnd() * 8, baseD = 12 + rnd() * 8, baseH = 30 + rnd() * 40;
+    const gap = 2 + rnd() * 4;
+    const innerFace = ALLEY_HALF_W + 1.5 + rnd() * 4; // 5.1 - 9.1 m from the alley centerline
+    const cx = side * (innerFace + baseW / 2), cz = z - baseD / 2;
+    const yaw = (rnd() - 0.5) * 0.016; // +/-0.008 rad — enough to break the row's rhythm, not to lean
+
+    baseTowers.push({ cx, cz, by: 0, w: baseW, h: baseH, d: baseD, yaw });
+    let topY = baseH, midHalfX = 0, midHalfZ = 0;
+
+    const hasMid = rnd() < 0.8;
+    if (hasMid) {
+      const inset = 0.15 + rnd() * 0.15;
+      const midW = baseW * (1 - inset), midD = baseD * (1 - inset), midH = 15 + rnd() * 25;
+      midTowers.push({ cx, cz, by: baseH, w: midW, h: midH, d: midD, yaw });
+      midHalfX = midW / 2; midHalfZ = midD / 2;
+      topY = baseH + midH;
+    }
+
+    const hasCrown = rnd() < 0.5;
+    let crownHalfX = 0, crownHalfZ = 0;
+    if (hasCrown) {
+      const inset = 0.15 + rnd() * 0.2;
+      const fromW = hasMid ? midHalfX * 2 : baseW, fromD = hasMid ? midHalfZ * 2 : baseD;
+      const crownW = fromW * (1 - inset), crownD = fromD * (1 - inset), crownH = 8 + rnd() * 12;
+      crownTowers.push({ cx, cz, by: topY, w: crownW, h: crownH, d: crownD, yaw });
+      crownHalfX = crownW / 2; crownHalfZ = crownD / 2;
+    }
+
+    scatterRoofClutter(rnd, baseH, cx, cz, baseW / 2, baseD / 2, midHalfX, midHalfZ);
+    if (hasMid) scatterRoofClutter(rnd, topY, cx, cz, midHalfX, midHalfZ, crownHalfX, crownHalfZ);
+
+    z -= baseD + gap;
+  }
+}
+
+// far silhouette skyline — same shared facade material so distant windows still glimmer through fog
+const backRnd = prng(555111);
+for (let i = 0; i < 30; i++) {
+  const side = backRnd() < 0.5 ? -1 : 1;
+  backTowers.push({
+    cx: side * (15 + backRnd() * 45), cz: -20 - backRnd() * 270, by: 0,
+    w: 10 + backRnd() * 18, h: 60 + backRnd() * 60, d: 10 + backRnd() * 18,
+    yaw: (backRnd() - 0.5) * 0.03,
+  });
+}
+
+scene.add(
+  buildInstMesh(unitBox, facadeMat, baseTowers),
+  buildInstMesh(unitBox, facadeMat, midTowers),
+  buildInstMesh(unitBox, facadeMat, crownTowers),
+  buildInstMesh(unitBox, facadeMat, backTowers),
+);
+
+const clutterMatTank = new THREE.MeshStandardMaterial({ color: '#2a2b30', roughness: 0.85, metalness: 0.2 });
+const clutterMatAC = new THREE.MeshStandardMaterial({ color: '#22262c', roughness: 0.7, metalness: 0.3 });
+const clutterMatAntenna = new THREE.MeshStandardMaterial({ color: '#101216', roughness: 0.6, metalness: 0.4 });
+scene.add(
+  buildInstMesh(unitCyl, clutterMatTank, clutterTanks),
+  buildInstMesh(unitBox, clutterMatAC, clutterACs),
+  buildInstMesh(unitCyl, clutterMatAntenna, clutterAntennas),
+);
+
 // SECTION: street — Task 3
 // SECTION: signs — Task 4
 // SECTION: atmosphere — Task 5
@@ -243,6 +479,7 @@ loop((elapsed, dt) => {
   camera.lookAt(camera.position.x * 0.4, 2.6, camZ - 26);
 
   grade.uniforms.uTime.value = elapsed;
+  facadeUniforms.uTime.value = elapsed;
 
   // rain: fall + wrap in a band that follows the camera down the alley so it always surrounds the viewer
   for (let i = 0; i < RAIN_COUNT; i++) {
