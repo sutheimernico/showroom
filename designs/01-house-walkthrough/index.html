@@ -197,6 +197,30 @@ const _glinfo = (() => {
 })();
 const SOFT_GPU = /swiftshader|llvmpipe|software/i.test(_glinfo);
 
+// ---------------------------------------------------------------- quality tiers
+// LOW must look "reduced", never broken: cheap glass + fewer blades still read as
+// the same design. Static guess first; the governor (Task 2) only steps DOWN.
+const TIERS = {
+  high: { shadow: 4096, grass: 45000, physGlass: true,  gtao: true,  dpr: 2,    envStep: 0.03, msaa: true  },
+  med:  { shadow: 2048, grass: 22000, physGlass: false, gtao: false, dpr: 1.5,  envStep: 0.06, msaa: true  },
+  low:  { shadow: 1024, grass: 9000,  physGlass: false, gtao: false, dpr: 1,    envStep: 0.12, msaa: false },
+};
+function guessTier() {
+  const url = new URLSearchParams(location.search).get('tier');
+  if (url && TIERS[url]) return url;
+  if (sessionStorage.getItem('house-forced-low')) return 'low';
+  if (SOFT_GPU) return 'low';
+  const weakGpu = /intel(?!.*arc)|uhd|iris|vega \d|radeon\(tm\)|mali|adreno|apple gpu/i.test(_glinfo);
+  const weakCpu = (navigator.hardwareConcurrency || 8) <= 4;
+  if (weakGpu || weakCpu) return 'med';        // med first; governor drops to low if needed
+  return 'high';
+}
+let tier = guessTier();
+const Q = () => TIERS[tier];
+// pixelRatio depends on the tier, which depends on the renderer above — override here,
+// right after makeRenderer()'s own default, and before makeComposer() sizes off it.
+renderer.setPixelRatio(Math.min(devicePixelRatio, Q().dpr));
+
 const scene = new THREE.Scene();
 scene.background = null;
 scene.fog = new THREE.FogExp2('#cfe0ee', 0.0016);
@@ -322,9 +346,9 @@ const pmrem = new THREE.PMREMGenerator(renderer);
 const envScene = new THREE.Scene();
 envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 24, 16), skyMat));
 let envRT = null, lastEnvT = -9;
-const ENV_STEP = SOFT_GPU ? 0.10 : 0.03;
+let envStep = Q().envStep;
 function bakeEnv(t) {
-  if (envRT && Math.abs(t - lastEnvT) < ENV_STEP) return;
+  if (envRT && Math.abs(t - lastEnvT) < envStep) return;
   lastEnvT = t;
   const old = envRT;
   envRT = pmrem.fromScene(envScene, 0.05);
@@ -335,7 +359,7 @@ function bakeEnv(t) {
 // ---------------------------------------------------------------- lights
 const sun = new THREE.DirectionalLight('#fff6e6', 4.2);
 sun.castShadow = true;
-sun.shadow.mapSize.set(SOFT_GPU ? 1024 : 4096, SOFT_GPU ? 1024 : 4096);
+sun.shadow.mapSize.set(Q().shadow, Q().shadow);
 sun.shadow.camera.near = 1; sun.shadow.camera.far = 80;
 sun.shadow.camera.left = -17; sun.shadow.camera.right = 17;
 sun.shadow.camera.top = 17; sun.shadow.camera.bottom = -17;
@@ -475,7 +499,7 @@ function makeBladeTexture() {
 const grassWind = { value: 0 };
 (function buildLawn() {
   const rnd = prng(1234);
-  const COUNT = SOFT_GPU ? 7000 : 45000;
+  const COUNT = Q().grass;
   const quad = new THREE.PlaneGeometry(0.34, 0.30, 1, 2); quad.translate(0, 0.15, 0);
   const quad2 = quad.clone().rotateY(Math.PI / 2);
   const geo = mergeGeometries([quad, quad2]);
@@ -600,15 +624,16 @@ function box(w, h, d, mat, x, y, z, { cast = true, receive = true } = {}) {
 })();
 
 (function buildGlazing() {
-  // Physical glass: real fresnel reflections + transmission on hardware GPUs.
-  // Transmission re-renders the scene into a buffer — too heavy for SwiftShader,
-  // so the shot harness path falls back to a transparent standard material.
+  // Physical glass: real fresnel reflections + transmission — gated to the high
+  // tier only. Transmission re-renders the scene into a buffer, too heavy for
+  // weak GPUs (and SwiftShader always lands on low), so med/low fall back to a
+  // transparent standard material.
   // FrontSide: camera never enters the envelope; kills back-face transmission cost + double-layer risk
-  const glass = SOFT_GPU
-    ? new THREE.MeshStandardMaterial({ color: '#cfe0e4', roughness: 0.04, metalness: 0,
-        transparent: true, opacity: 0.14, envMapIntensity: 1.2, side: THREE.FrontSide })
-    : new THREE.MeshPhysicalMaterial({ color: '#eef4f4', roughness: 0.03, metalness: 0,
-        transmission: 1, thickness: 0.02, ior: 1.52, envMapIntensity: 1.0, side: THREE.FrontSide });
+  const glass = Q().physGlass
+    ? new THREE.MeshPhysicalMaterial({ color: '#eef4f4', roughness: 0.03, metalness: 0,
+        transmission: 1, thickness: 0.02, ior: 1.52, envMapIntensity: 1.0, side: THREE.FrontSide })
+    : new THREE.MeshStandardMaterial({ color: '#cfe0e4', roughness: 0.04, metalness: 0,
+        transparent: true, opacity: 0.14, envMapIntensity: 1.2, side: THREE.FrontSide });
   const frame = M.steel;
   // one glazed bay = glass pane + surrounding slim frame profiles, recessed by `inset`
   function bay(w, h, x, y, z, { rotY = 0, inset = 0.12 } = {}) {
@@ -717,10 +742,11 @@ const aim = new THREE.CatmullRomCurve3([
 const composer = makeComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 // GTAO grounds every contact (furniture→floor, plinth→lawn, reveals) — the single
-// biggest "renders like archviz" post lever. Skipped on software rasterizers: the
-// depth/normal prepass is brutal on SwiftShader and shots only need composition.
+// biggest "renders like archviz" post lever. Gated by tier: the depth/normal
+// prepass is brutal on weak GPUs (SwiftShader always lands on low) and shots
+// only need composition.
 let gtao = null;
-if (!SOFT_GPU) {
+if (Q().gtao) {
   gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
   gtao.output = GTAOPass.OUTPUT.Default;
   composer.addPass(gtao);
