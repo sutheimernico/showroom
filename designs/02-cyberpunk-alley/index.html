@@ -380,6 +380,165 @@ scene.add(
 );
 
 // SECTION: street — Task 3
+// ---------------------------------------------------------------- wet street: reflector + puddle overlay
+const ROAD_WIDTH = 9, ROAD_DEPTH = 340, ROAD_Z = -150; // centered under the flight path (camZ runs 0 -> -260)
+const ROAD_Z_FRONT = ROAD_Z + ROAD_DEPTH / 2, ROAD_Z_BACK = ROAD_Z - ROAD_DEPTH / 2;
+const ROAD_TILE_REPEAT = 28; // ~12 m per texture tile down the 340 m road
+const ROAD_TILE_LEN = ROAD_DEPTH / ROAD_TILE_REPEAT;
+
+// Reflector's mirror math derives its reflecting-plane normal from the *object's* matrixWorld
+// rotation (see three/addons Reflector.js onBeforeRender), not from any rotation baked into the
+// geometry itself. The plane geometry therefore stays in its default XY orientation and the
+// Reflector instance gets rotated flat via Object3D.rotateX — mirroring the official three.js
+// Reflector example convention. Baking `.rotateX()` into the geometry instead (visually identical
+// for an ordinary mesh) would leave the mirror thinking its normal still points along +Z and break
+// the reflection.
+// Reflector.ReflectorShader runs `tonemapping_fragment` + `colorspace_fragment` on its OUTPUT —
+// on top of the fact that every object it captures already ran those same chunks once when the
+// inner scene render wrote them into the reflection render target. That double ACES pass crushes
+// anything below ~mid-grey towards black before the `color` tint even multiplies in, so a
+// near-black tint (the intuitive "dark wet asphalt" choice) multiplies an already-crushed signal
+// down to nothing — confirmed empirically: the reflector was rendering, but invisible. A light
+// grey tint compensates; it stays a *moody* street because the puddle-mask overlay below hides
+// the mirror everywhere except the wet patches, so this brightness only ever reads as glossy
+// puddle glare, never a bright floor.
+const roadGeo = new THREE.PlaneGeometry(ROAD_WIDTH, ROAD_DEPTH);
+const road = new Reflector(roadGeo, {
+  textureWidth: 512, textureHeight: 512, // low-res: this re-renders the whole scene a 2nd time per frame
+  color: 0x767e8a,
+  multisample: 0, // matches shared/lib.js's isSoftwareRenderer MSAA caution — cheap target, skip it
+});
+road.rotateX(-Math.PI / 2);
+road.position.set(0, 0, ROAD_Z);
+scene.add(road);
+
+// Puddle-mask asphalt overlay: a MeshStandardMaterial plane a hair above the reflector. Where its
+// alpha is low (puddles) the reflector shows through crisp; where alpha is high (dry asphalt) it
+// hides the mirror — a binary-ish wet/dry read that sells rain without real SSR.
+function buildAsphaltTexture() {
+  const SIZE = 1024;
+  const c = document.createElement('canvas'); c.width = c.height = SIZE;
+  const g = c.getContext('2d');
+  const rnd = prng(31415);
+  g.fillStyle = '#0e0f12';
+  g.fillRect(0, 0, SIZE, SIZE);
+  for (let i = 0; i < 4000; i++) { // fine noise speckle
+    const v = 14 + rnd() * 20;
+    g.fillStyle = `rgba(${v + 6},${v + 6},${v + 8},${0.12 + rnd() * 0.18})`;
+    g.fillRect(rnd() * SIZE, rnd() * SIZE, 1 + rnd(), 1 + rnd());
+  }
+  const dash = SIZE * (1.5 / ROAD_TILE_LEN), gap = SIZE * (3.2 / ROAD_TILE_LEN); // dim dashed lane line
+  g.fillStyle = '#5a4e2a';
+  for (let y = 0; y < SIZE; y += dash + gap) g.fillRect(SIZE / 2 - 4, y, 8, dash);
+  const aspect = ROAD_WIDTH / ROAD_TILE_LEN; // canvas is square, the physical tile isn't — keep circles round
+  for (let i = 0; i < 3; i++) { // manhole covers
+    const cx = SIZE * (0.15 + rnd() * 0.7), cy = SIZE * (0.15 + rnd() * 0.7), r = 26 + rnd() * 10;
+    g.fillStyle = '#1c1d21';
+    g.beginPath(); g.ellipse(cx, cy, r, r * aspect, 0, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = '#35363a'; g.lineWidth = 2;
+    g.beginPath(); g.ellipse(cx, cy, r * 0.72, r * 0.72 * aspect, 0, 0, Math.PI * 2); g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, ROAD_TILE_REPEAT);
+  tex.anisotropy = 8;
+  return tex;
+}
+
+function buildPuddleMaskTexture() {
+  const SIZE = 1024;
+  const c = document.createElement('canvas'); c.width = c.height = SIZE;
+  const g = c.getContext('2d');
+  const rnd = prng(24601);
+  g.fillStyle = '#f0f0f0'; // near-white = opaque dry asphalt (reflector hidden)
+  g.fillRect(0, 0, SIZE, SIZE);
+  g.filter = 'blur(14px)';
+  for (let i = 0; i < 45; i++) { // puddles: darker = lower alpha = reflector shows through
+    const rx = 35 + rnd() * 150, ry = rx * (0.5 + rnd() * 0.5);
+    const dark = 12 + rnd() * 45;
+    g.fillStyle = `rgb(${dark},${dark},${dark})`;
+    g.beginPath();
+    g.ellipse(rnd() * SIZE, rnd() * SIZE, rx, ry, rnd() * Math.PI, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.filter = 'none';
+  // drier tire lanes at x ~= +/-1.2m: push those two bands back toward white without ever darkening
+  g.globalCompositeOperation = 'lighten';
+  g.filter = 'blur(50px)';
+  for (const x of [-1.2, 1.2]) {
+    const u = (x + ROAD_WIDTH / 2) / ROAD_WIDTH;
+    g.fillStyle = 'rgba(255,255,255,0.85)';
+    g.fillRect(u * SIZE - 65, 0, 130, SIZE);
+  }
+  g.globalCompositeOperation = 'source-over';
+  g.filter = 'none';
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, ROAD_TILE_REPEAT);
+  return tex;
+}
+
+// Low-frequency ripple normal map: paint a soft height field, then derive a normal from its gradient.
+function buildRippleNormalTexture() {
+  const SIZE = 256;
+  const c = document.createElement('canvas'); c.width = c.height = SIZE;
+  const g = c.getContext('2d');
+  const rnd = prng(27182);
+  g.fillStyle = '#808080'; g.fillRect(0, 0, SIZE, SIZE);
+  g.filter = 'blur(10px)';
+  for (let i = 0; i < 40; i++) {
+    const v = 90 + rnd() * 80;
+    g.fillStyle = `rgb(${v},${v},${v})`;
+    g.beginPath(); g.arc(rnd() * SIZE, rnd() * SIZE, 10 + rnd() * 30, 0, Math.PI * 2); g.fill();
+  }
+  g.filter = 'none';
+  const src = g.getImageData(0, 0, SIZE, SIZE);
+  const h = (x, y) => src.data[((((y % SIZE) + SIZE) % SIZE) * SIZE + (((x % SIZE) + SIZE) % SIZE)) * 4] / 255;
+  const out = g.createImageData(SIZE, SIZE);
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const nx = -(h(x + 1, y) - h(x - 1, y)) * 1.6, ny = -(h(x, y + 1) - h(x, y - 1)) * 1.6;
+      const len = Math.hypot(nx, ny, 1);
+      const idx = (y * SIZE + x) * 4;
+      out.data[idx] = (nx / len * 0.5 + 0.5) * 255;
+      out.data[idx + 1] = (ny / len * 0.5 + 0.5) * 255;
+      out.data[idx + 2] = (1 / len * 0.5 + 0.5) * 255;
+      out.data[idx + 3] = 255;
+    }
+  }
+  g.putImageData(out, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, ROAD_TILE_REPEAT);
+  return tex;
+}
+
+const overlayMat = new THREE.MeshStandardMaterial({
+  map: buildAsphaltTexture(),
+  alphaMap: buildPuddleMaskTexture(),
+  normalMap: buildRippleNormalTexture(),
+  transparent: true,
+  roughness: 0.5, metalness: 0.2,
+  polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1, // avoid z-fight with the reflector 1cm below
+});
+const overlay = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_WIDTH, ROAD_DEPTH).rotateX(-Math.PI / 2), overlayMat);
+overlay.position.set(0, 0.01, ROAD_Z);
+scene.add(overlay);
+
+// Curbs + damp sidewalks: one InstancedMesh (reuses the tower system's unitBox + buildInstMesh),
+// segmented down the depth rather than one giant uniform slab.
+const curbMat = new THREE.MeshStandardMaterial({ color: '#15171c', roughness: 0.55, metalness: 0.1, envMapIntensity: 0.4 });
+const CURB_X0 = 4.35, CURB_X1 = 5.4; // curb face sits right at the reflector's edge (x=4.5), sidewalk behind it
+const CURB_W = CURB_X1 - CURB_X0, CURB_CX = (CURB_X0 + CURB_X1) / 2, CURB_H = 0.15, SEG_LEN = 10;
+const curbList = [];
+for (const side of [-1, 1]) {
+  for (let z = ROAD_Z_FRONT; z > ROAD_Z_BACK; z -= SEG_LEN) {
+    curbList.push({ cx: side * CURB_CX, cz: z - SEG_LEN / 2, by: 0, w: CURB_W, h: CURB_H, d: SEG_LEN * 0.96, yaw: 0 });
+  }
+}
+scene.add(buildInstMesh(unitBox, curbMat, curbList));
+
 // SECTION: signs — Task 4
 // SECTION: atmosphere — Task 5
 
@@ -488,6 +647,7 @@ loop((elapsed, dt) => {
 
   grade.uniforms.uTime.value = elapsed;
   facadeUniforms.uTime.value = elapsed;
+  overlayMat.normalMap.offset.y = elapsed * 0.02; // slow scroll — subtle living-water shimmer on puddle edges
 
   // rain: fall + wrap in a band that follows the camera down the alley so it always surrounds the viewer
   for (let i = 0; i < RAIN_COUNT; i++) {

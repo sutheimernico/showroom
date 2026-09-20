@@ -408,14 +408,23 @@ const hemi = new THREE.HemisphereLight('#bcd4ea', '#4a4436', 0.55);
 scene.add(hemi);
 
 // SECTION: practicals — everything that turns ON as the sun dies. Real lights, no emissive-wall fakes.
-const practicals = { pendants: [], fills: [], eaves: [], pool: null, dayFill: null };
+const practicals = { pendants: [], fills: [], eaves: [], bollards: [], bollardMat: null, pool: null, dayFill: null };
 {
-  const p = new THREE.PointLight('#ffc478', 0, 7, 2);       // pendant cluster over dining
+  const p = new THREE.PointLight('#ffc478', 0, 8, 2);       // pendant cluster over dining
   p.position.set(3.4, 2.0, 0.6);
   scene.add(p); practicals.pendants.push(p);
-  // practicals cast no shadows; keep distances short so nothing reaches through walls
-  for (const [x, y, z] of [[-3.2, 2.3, 0.8], [-3.4, 5.2, -2.0]]) {   // living + bedroom fill
-    const f = new THREE.PointLight('#ffd9a4', 0, 5, 2);
+  // interior fills — practicals cast no shadows; keep distances short so nothing reaches through walls.
+  // spread across the plan so no room reads as a dead black void once the sun is gone.
+  // decay:1 (not physical 2) — a soft, even room wash instead of a harsh near-field ball that
+  // blooms into a mini-sun through the glass. Positioned off the furniture / away from the panes.
+  for (const [x, y, z] of [
+    [-2.7, 2.5, -0.2],   // living, deep
+    [-1.6, 2.5, 1.4],    // living center
+    [-3.4, 2.5, -0.9],   // kitchen island
+    [ 3.4, 2.5, -2.6],   // east volume, behind dining
+    [-3.4, 5.15, -2.4],  // upstairs bedroom
+  ]) {
+    const f = new THREE.PointLight('#ffd9a4', 0, 10, 1);
     f.position.set(x, y, z);
     scene.add(f); practicals.fills.push(f);
   }
@@ -424,9 +433,23 @@ const practicals = { pendants: [], fills: [], eaves: [], pool: null, dayFill: nu
     s.position.set(ex, 3.1, 3.6); s.target.position.set(ex, 0, 4.4);
     scene.add(s, s.target); practicals.eaves.push(s);
   }
-  const pl = new THREE.PointLight('#6fc3e8', 0, 6, 2);       // pool underwater glow
-  pl.position.set(3.6, 0.3, 6.9);
+  const pl = new THREE.PointLight('#a8d6ec', 0, 7, 1);       // pool glow — softer, less saturated cyan; decay:1 spreads it, no laser-point
+  pl.position.set(3.6, 0.15, 6.9);
   scene.add(pl); practicals.pool = pl;
+  // terrace + path bollards: visible warm fixtures that also throw a short ground pool,
+  // and light the flanking hedges from the front. Short range so they don't wash the facade.
+  const bollardBody = new THREE.MeshStandardMaterial({ color: '#26241f', roughness: 0.5, metalness: 0.7 });
+  const bollardCap = new THREE.MeshStandardMaterial({ color: '#33281c', roughness: 0.6, emissive: '#ffb060', emissiveIntensity: 0 });
+  practicals.bollardMat = bollardCap;
+  for (const [bx, bz] of [[-2.6, 10.0], [-4.2, 13.2], [6.6, 9.3], [-5.6, 9.3]]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.8, 12), bollardBody);
+    post.position.set(bx, 0.28, bz); post.castShadow = true; root.add(post);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.12, 12), bollardCap);
+    cap.position.set(bx, 0.74, bz); root.add(cap);
+    const bl = new THREE.PointLight('#ffb060', 0, 3.4, 2);
+    bl.position.set(bx, 0.72, bz);
+    scene.add(bl); practicals.bollards.push(bl);
+  }
   const df = new THREE.PointLight('#fff2e0', 1.2, 14, 2);    // daytime sky-bounce under the roof
   df.position.set(0, 2.4, 0.5);
   scene.add(df); practicals.dayFill = df;
@@ -440,8 +463,8 @@ const stops = [
   { at: 0.00, hor: '#dbe9f4', zen: '#4a7fd4', sun: '#fff6e6', sunI: 9.5, hemiI: 1.7,  envI: 1.0,  pt: 0.00, fog: 0.0016, expo: 3.4,  stars: 0.0,  cloud: 1.0,  sunPos: [-14, 18, 10] },
   { at: 0.35, hor: '#eed9ac', zen: '#3f6fbe', sun: '#ffe7bd', sunI: 7.8, hemiI: 1.4,  envI: 0.9,  pt: 0.00, fog: 0.0030, expo: 3.0,  stars: 0.0,  cloud: 0.8,  sunPos: [-20, 10, 9] },
   { at: 0.60, hor: '#ff9e58', zen: '#2e3560', sun: '#ffb066', sunI: 3.0, hemiI: 0.45, envI: 0.75, pt: 0.12, fog: 0.0060, expo: 1.15, stars: 0.0,  cloud: 0.45, sunPos: [-24, 4, 2] },
-  { at: 0.80, hor: '#8e5f7a', zen: '#141a33', sun: '#7f8ec2', sunI: 0.6, hemiI: 0.22, envI: 0.38, pt: 0.60, fog: 0.0090, expo: 1.00, stars: 0.45, cloud: 0.2,  sunPos: [-16, 1.2, -8] },
-  { at: 1.00, hor: '#0f1830', zen: '#04060d', sun: '#3c4c8a', sunI: 0.1, hemiI: 0.15, envI: 0.24, pt: 1.00, fog: 0.0120, expo: 1.00, stars: 1.0,  cloud: 0.08, sunPos: [-8, -2, -12] },
+  { at: 0.80, hor: '#8e5f7a', zen: '#141a33', sun: '#7f8ec2', sunI: 0.6, hemiI: 0.30, envI: 0.42, pt: 0.60, fog: 0.0090, expo: 1.00, stars: 0.45, cloud: 0.2,  sunPos: [-16, 1.2, -8] },
+  { at: 1.00, hor: '#0f1830', zen: '#04060d', sun: '#3c4c8a', sunI: 0.1, hemiI: 0.24, envI: 0.30, pt: 1.00, fog: 0.0120, expo: 1.00, stars: 1.0,  cloud: 0.08, sunPos: [-8, -2, -12] },
 ];
 const _cA = new THREE.Color(), _cB = new THREE.Color();
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -466,13 +489,15 @@ function applyDay(t) {
   scene.environmentIntensity = lerp(a.envI, b.envI, k);
   renderer.toneMappingExposure = lerp(a.expo, b.expo, k);
   const pt = lerp(a.pt, b.pt, k);
-  for (const p of practicals.pendants) p.intensity = pt * 6;
-  for (const f of practicals.fills) f.intensity = pt * 9;
+  for (const p of practicals.pendants) p.intensity = pt * 9;
+  for (const f of practicals.fills) f.intensity = pt * 3.6;
   for (const s of practicals.eaves) s.intensity = pt * 40;
-  practicals.pool.intensity = pt * 12;
-  practicals.dayFill.intensity = 1.2 * (1 - pt);
+  for (const b of practicals.bollards) b.intensity = pt * 5;
+  practicals.bollardMat.emissiveIntensity = pt * 2.4;
+  practicals.pool.intensity = pt * 7;
+  practicals.dayFill.intensity = 1.5 * (1 - pt);
   pendantShadeMat.emissiveIntensity = pt * 3.5;
-  bloom.strength = 0.12 + pt * 0.5;
+  bloom.strength = 0.12 + pt * 0.34;
 }
 
 // ---------------------------------------------------------------- world
@@ -710,10 +735,18 @@ loadModel('./models/sofa_03/sofa_03.gltf',               { x: -3.6, y: 0.10, z: 
 loadModel('./models/ArmChair_01/ArmChair_01.gltf',       { x: -1.4, y: 0.10, z: 0.6, ry: -Math.PI / 3 });
 loadModel('./models/coffee_table_round_01/coffee_table_round_01.gltf', { x: -2.9, y: 0.10, z: 0.2 });
 loadModel('./models/dining_table/dining_table.gltf',     { x: 3.4, y: 0.10, z: 0.6 });
-for (const [dx, dz, r] of [[-0.9, -0.8, 0], [0.1, -0.8, 0], [1.0, -0.8, 0],
-                            [-0.9, 1.9, Math.PI], [0.1, 1.9, Math.PI], [1.0, 1.9, Math.PI]]) {
-  loadModel('./models/dining_chair_02/dining_chair_02.gltf', { x: 3.4 + dx - 0.05, y: 0.10, z: 0.6 + dz, ry: r });
-}
+// six identical chairs: load once, clone — same pattern as the garden trees
+gltfLoader.load('./models/dining_chair_02/dining_chair_02.gltf', (gltf) => {
+  const proto = gltf.scene;
+  normalizeGltf(proto);
+  for (const [dx, dz, r] of [[-0.9, -0.8, 0], [0.1, -0.8, 0], [1.0, -0.8, 0],
+                              [-0.9, 1.9, Math.PI], [0.1, 1.9, Math.PI], [1.0, 1.9, Math.PI]]) {
+    const chair = proto.clone();
+    chair.position.set(3.4 + dx - 0.05, 0.10, 0.6 + dz);
+    chair.rotation.y = r;
+    root.add(chair);
+  }
+});
 loadModel('./models/anthurium_botany_01/anthurium_botany_01.gltf', { x: 5.4, y: 0.10, z: -3.2 });
 loadModel('./models/anthurium_botany_01/anthurium_botany_01.gltf', { x: -5.6, y: 0.10, z: 3.0, ry: 2.1 });
 
@@ -757,9 +790,82 @@ gltfLoader.load('./models/island_tree_02/island_tree_02_1k.gltf', (gltf) => {
     root.add(t);
   }
 });
-// clipped hedges flanking the terrace steps
-const hedgeMat = new THREE.MeshStandardMaterial({ color: '#48633a', roughness: 0.95 });
-for (const hx of [-6.6, 7.6]) rbox(2.6, 0.55, 0.8, 0.05, hedgeMat, hx, -0.12, 8.6);
+// clipped hedges flanking the terrace steps.
+// A flat green box read as a placeholder bug; build them as real foliage instead —
+// a dark inner mass (so gaps never show sky through) wrapped in instanced leaf cards,
+// same alpha-cutout philosophy as the lawn blades. Boxy silhouette is intentional (clipped).
+function makeLeafTexture() {
+  const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+  const g = c.getContext('2d');
+  const rnd = prng(9911);
+  g.clearRect(0, 0, 128, 128);
+  for (let i = 0; i < 8; i++) {                       // a small cluster of overlapping leaves per card
+    const cx = 30 + rnd() * 68, cy = 30 + rnd() * 68;
+    const rx = 15 + rnd() * 13, ry = 22 + rnd() * 16;
+    const grad = g.createLinearGradient(cx, cy - ry, cx, cy + ry);
+    grad.addColorStop(0, `rgb(${74 + rnd() * 40}, ${116 + rnd() * 46}, ${54 + rnd() * 22})`);  // lit tip
+    grad.addColorStop(1, `rgb(${26 + rnd() * 16}, ${54 + rnd() * 22}, ${24 + rnd() * 12})`);    // shaded base
+    g.save(); g.translate(cx, cy); g.rotate(rnd() * Math.PI);
+    g.fillStyle = grad;
+    g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2); g.fill();
+    g.restore();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = maxAniso;
+  return t;
+}
+const leafTex = makeLeafTexture();
+const leafMat = new THREE.MeshStandardMaterial({ map: leafTex, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, metalness: 0 });
+function buildHedge(cx, cz, w, h, d, seed) {
+  const rnd = prng(seed);
+  const yb = -0.12;                                   // hedge sits on the lawn line
+  // 1) dark inner mass, slightly smaller than the leaf shell
+  rbox(w * 0.8, h * 0.82, d * 0.7, 0.05,
+    new THREE.MeshStandardMaterial({ color: '#20301a', roughness: 1 }), cx, yb, cz);
+  // 2) leaf cards wrapping a boxy shell. Sample the 5 visible faces (top + 4 sides),
+  //    weighted by area, jitter outward, orient the card normal to the face.
+  const hw = w / 2, hh = h / 2, hd = d / 2, cy = yb + hh;
+  const faces = [
+    { n: [0, 1, 0],  ua: [1, 0, 0], va: [0, 0, 1], hu: hw, hv: hd, o: [0, hh, 0]  }, // top
+    { n: [1, 0, 0],  ua: [0, 0, 1], va: [0, 1, 0], hu: hd, hv: hh, o: [hw, 0, 0]  }, // +x
+    { n: [-1, 0, 0], ua: [0, 0, 1], va: [0, 1, 0], hu: hd, hv: hh, o: [-hw, 0, 0] }, // -x
+    { n: [0, 0, 1],  ua: [1, 0, 0], va: [0, 1, 0], hu: hw, hv: hh, o: [0, 0, hd]  }, // +z
+    { n: [0, 0, -1], ua: [1, 0, 0], va: [0, 1, 0], hu: hw, hv: hh, o: [0, 0, -hd] }, // -z
+  ];
+  const areas = faces.map((f) => f.hu * f.hv), areaSum = areas.reduce((a, b) => a + b, 0);
+  const COUNT = 520;
+  const inst = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.22, 0.22), leafMat, COUNT);
+  inst.castShadow = false; inst.receiveShadow = true;
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+  const pos = new THREE.Vector3(), nrm = new THREE.Vector3(), zAxis = new THREE.Vector3(0, 0, 1);
+  const col = new THREE.Color();
+  for (let i = 0; i < COUNT; i++) {
+    let pick = rnd() * areaSum, fi = 0; while (fi < faces.length - 1 && (pick -= areas[fi]) > 0) fi++;
+    const f = faces[fi];
+    const u = (rnd() * 2 - 1) * f.hu, v = (rnd() * 2 - 1) * f.hv, out = 0.02 + rnd() * 0.06;
+    pos.set(
+      cx + f.o[0] + f.ua[0] * u + f.va[0] * v + f.n[0] * out,
+      cy + f.o[1] + f.ua[1] * u + f.va[1] * v + f.n[1] * out,
+      cz + f.o[2] + f.ua[2] * u + f.va[2] * v + f.n[2] * out,
+    );
+    nrm.set(f.n[0], f.n[1], f.n[2]);
+    q.setFromUnitVectors(zAxis, nrm);                 // card faces outward
+    const spin = new THREE.Quaternion().setFromAxisAngle(nrm, rnd() * Math.PI * 2);
+    const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler((rnd() - 0.5) * 0.7, (rnd() - 0.5) * 0.7, 0));
+    q.multiply(spin).multiply(tilt);
+    const sc = 0.85 + rnd() * 0.7; s.set(sc, sc, sc);
+    m.compose(pos, q, s);
+    inst.setMatrixAt(i, m);
+    col.setHSL(0.24 + rnd() * 0.06, 0.42 + rnd() * 0.2, 0.26 + rnd() * 0.2);
+    inst.setColorAt(i, col);
+  }
+  inst.instanceMatrix.needsUpdate = true;
+  if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+  root.add(inst);
+}
+buildHedge(-6.6, 8.6, 2.6, 0.7, 0.8, 707);
+buildHedge(7.6, 8.6, 2.6, 0.7, 0.8, 313);
 
 // ---------------------------------------------------------------- camera rig
 // Eye-level path, always outside the building envelope. South (+z) is the glass side.
@@ -781,7 +887,7 @@ const aim = new THREE.CatmullRomCurve3([
 ]);
 
 // ---------------------------------------------------------------- post
-const composer = makeComposer(renderer);
+const composer = makeComposer(renderer, { msaa: Q().msaa });
 composer.addPass(new RenderPass(scene, camera));
 // GTAO grounds every contact (furniture→floor, plinth→lawn, reveals) — the single
 // biggest "renders like archviz" post lever. Gated by tier: the depth/normal
@@ -845,7 +951,7 @@ function resize(w, h) {
   if (gtao) gtao.setSize(w, h);
 }
 onResize(resize);
-attachLifecycle(renderer, scene, composer);
+attachLifecycle(renderer, scene, composer, [envScene, pmrem, () => envRT?.dispose()]);
 
 const _p = new THREE.Vector3(), _a = new THREE.Vector3();
 applyDay(0);

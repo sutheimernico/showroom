@@ -44,13 +44,16 @@ function isSoftwareRenderer(renderer) {
 // has no MSAA, see three's EffectComposer source). WebGL2 lets a WebGLRenderTarget itself carry
 // `samples`; the renderer resolves the multisampled buffer automatically when a later pass
 // samples the texture. Falls back to a plain (non-MSAA) target on WebGL1 or software rasterizers.
-export function makeComposer(renderer) {
+// `msaa: false` lets a design's quality tier opt out of the multisampled target
+// (real weak GPUs, not just software rasterizers) — the target is created once,
+// so this is a startup decision, not a live-switchable one.
+export function makeComposer(renderer, { msaa = true } = {}) {
   const size = renderer.getSize(new THREE.Vector2());
   const pixelRatio = renderer.getPixelRatio();
   // ?nomsaa — diagnostic escape hatch: lets us A/B a suspected multisample-resolve
   // driver artifact (e.g. black blocks on some ANGLE/D3D11 configs) without a rebuild
   const noMsaa = new URLSearchParams(location.search).has('nomsaa');
-  const samples = renderer.capabilities.isWebGL2 && !isSoftwareRenderer(renderer) && !noMsaa ? 4 : 0;
+  const samples = msaa && renderer.capabilities.isWebGL2 && !isSoftwareRenderer(renderer) && !noMsaa ? 4 : 0;
   const target = new THREE.WebGLRenderTarget(size.width * pixelRatio, size.height * pixelRatio, {
     type: THREE.HalfFloatType,
     samples,
@@ -87,9 +90,12 @@ export function makeGradePass({ aberration = 0.0015, vignetteMin = 0.6, grain = 
 // quick back/forward navigation between showpieces doesn't leak GPU memory, and recovers from
 // WebGL context loss. Re-uploading every bespoke scene's GPU state by hand isn't worth it for
 // a set of one-off showpieces, so a restored context just reloads the page.
-export function attachLifecycle(renderer, scene, composer) {
-  const disposeAll = () => {
-    scene?.traverse((obj) => {
+// `extras` covers GPU state living outside the main scene graph: a Scene is
+// traverse-disposed, a function is called (for mutable bindings like a swapped
+// render target), anything else gets .dispose() if it has one.
+export function attachLifecycle(renderer, scene, composer, extras = []) {
+  const disposeScene = (s) =>
+    s.traverse((obj) => {
       obj.geometry?.dispose?.();
       const mats = Array.isArray(obj.material) ? obj.material : obj.material ? [obj.material] : [];
       for (const mat of mats) {
@@ -97,6 +103,13 @@ export function attachLifecycle(renderer, scene, composer) {
         mat.dispose();
       }
     });
+  const disposeAll = () => {
+    if (scene) disposeScene(scene);
+    for (const extra of extras) {
+      if (typeof extra === 'function') extra();
+      else if (extra?.isScene) disposeScene(extra);
+      else extra?.dispose?.();
+    }
     composer?.passes?.forEach((p) => p.dispose?.());
     composer?.dispose?.();
     renderer.dispose();
