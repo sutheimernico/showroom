@@ -4,7 +4,7 @@ You are a fresh headless agent. You do ONE high-value thing, verify it, commit i
 Progress lives on disk (this file, `PLAN.md`, git history) — never in context.
 
 ## Per-iteration protocol
-1. Read `~/private/AUTOPILOT.md` (global rules), then this `LOOP.md`, then `PROJECT.md` and
+1. Read `AUTOPILOT.md` (author's global loop rules, not part of this repo) (global rules), then this `LOOP.md`, then `PROJECT.md` and
    `PLAN.md`.
 2. Confirm you are on branch `autopilot/work` (the runner guarantees this; if not, stop).
    NOTE: this repo had no git history before the runner set it up — `autopilot/work` was cut

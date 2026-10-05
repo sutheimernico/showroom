@@ -11,7 +11,7 @@
 **Verification model:** This repo has no unit-test framework; the build loop's test harness is `tools/shot.sh` (screenshots at scroll positions + console-error check + SwiftShader-lower-bound FPS). Every task ends with a shot run and a concrete visual checklist instead of a unit test. Screenshots MUST be viewed (Read tool), not just generated.
 
 **Server note:** Port 8080 is occupied by Airflow on this machine. Serve with
-`python3 -m http.server 8123 --directory ~/private/showroom`
+`python3 -m http.server 8123 --directory /path/to/showroom`
 and use `http://localhost:8123/designs/01-house-walkthrough/` everywhere below.
 
 ---
@@ -53,7 +53,7 @@ House center at origin. South = +z (glass facade + terrace), west = −x (sun se
 - [ ] **Step 0.1: Create the working branch** (repo is on `autopilot/work`, clean tree)
 
 ```bash
-cd ~/private/showroom
+cd /path/to/showroom
 git checkout -b feat/01-house-realism
 ```
 
@@ -61,7 +61,7 @@ git checkout -b feat/01-house-realism
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8123/ \
-  || (nohup python3 -m http.server 8123 --directory ~/private/showroom > /tmp/showroom-serve.log 2>&1 &)
+  || (nohup python3 -m http.server 8123 --directory /path/to/showroom > /tmp/showroom-serve.log 2>&1 &)
 ```
 Expected: `200` (immediately or after starting).
 
@@ -84,7 +84,7 @@ Expected: `OK — no console errors`, an `fps` line (record `avgFps`/`lowFps` nu
 - [ ] **Step 1.1: Download the two texture sets** (Poly Haven URL pattern, same as existing sets)
 
 ```bash
-cd ~/private/showroom/designs/01-house-walkthrough/textures
+cd /path/to/showroom/designs/01-house-walkthrough/textures
 for name in leafy_grass patterned_concrete_pavers_03; do
   for map in diff nor_gl rough; do
     curl -sfLO "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/${name}/${name}_${map}_1k.jpg" \
@@ -97,7 +97,7 @@ Expected: 6 × `OK …`. If any `FAIL`: query `https://api.polyhaven.com/files/<
 - [ ] **Step 1.2: Download the six furniture/plant models via the Poly Haven files API** (the API lists exact URLs for the `.gltf`, `.bin`, and every texture — no guessed paths)
 
 ```bash
-cd ~/private/showroom/designs/01-house-walkthrough/models
+cd /path/to/showroom/designs/01-house-walkthrough/models
 for slug in sofa_03 ArmChair_01 coffee_table_round_01 dining_table dining_chair_02 anthurium_botany_01; do
   python3 - "$slug" <<'EOF'
 import json, sys, urllib.request, pathlib
@@ -133,7 +133,7 @@ and to `models/SOURCES.md`:
 - [ ] **Step 1.4: Commit**
 
 ```bash
-cd ~/private/showroom
+cd /path/to/showroom
 git add designs/01-house-walkthrough/textures designs/01-house-walkthrough/models
 git commit -m "feat(01-house): add CC0 lawn/paver textures and furniture models (Poly Haven)"
 ```
