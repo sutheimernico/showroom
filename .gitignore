@@ -6,6 +6,11 @@ tools/deps/
 
 # Secrets — never commit
 .env
+.env.*
+!.env.example
 
 # Brainstorming visual-companion sessions (superpowers)
 .superpowers/
+
+# Large model buffers (>10 MB) are not committed — run tools/fetch-models.sh
+designs/**/models/**/island_tree_02.bin
